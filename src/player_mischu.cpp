@@ -69,11 +69,11 @@ Adafruit_VS1053_FilePlayer musicPlayer = Adafruit_VS1053_FilePlayer(SHIELD_RESET
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
 // global variables
-File root;           // root file
-SdFat SD;            // file system object
-char dirname[50];   // buffer to hold current dirname
-char fname[13];     // buffer to hold current file name
-//SdFile file;         // Use for file creation in folders.
+File root;        // root file
+File indexfile;   // indexfile
+SdFat SD;         // file system object
+char dirname[50]; // buffer to hold current dirname
+char fname[13];   // buffer to hold current file name
 uint8_t volume = 40; // settings of amplifier
 
 // NFC management
@@ -125,18 +125,17 @@ void setup()
       ; // don't do anything more
   }
   Serial.println("initialization done.");
-  
+
   /*------------------------
   startup program
   ------------------------*/
-  
+
   // index SD card
-  File indexfile;
-  if (SD.exists("/index.txt"))                          // remove existing index file from SD card
+  if (SD.exists("/index.txt")) // remove existing index file from SD card
   {
     SD.remove("/index.txt");
   }
-  indexfile = SD.open("/index.txt", FILE_WRITE);        // open new indexfile on SD card
+  indexfile = SD.open("/index.txt", FILE_WRITE); // open new indexfile on SD card
   if (indexfile)
   {
     Serial.println("Index File opend, start indexing");
@@ -145,7 +144,7 @@ void setup()
   {
     Serial.println("error opening Index File");
   }
-  strcpy(dirname,"/MUSIC");
+  strcpy(dirname, "/MUSIC");
   root = SD.open(dirname);
   indexDirectoryToFile(root, &indexfile);
   indexfile.close();
@@ -274,40 +273,83 @@ void loop()
         // tag is not know, init it with demo data
         Serial.println("Unknown Card");
 
-        nfcTagData testdata = {42,              // cookie to identify the nfc tag to belong to the player
-                               "AIR/10000H~1/", // Byte1-28 char array to hold the path to the folder
-                               5,               // Byte29 number of tracks in the specific folder
-                               1,               // Byte30 play mode assigne to the nfcTag
-                               1};              // Byte31 track or function for admin nfcTags
+        nfcTagData testdata = {42,             // cookie to identify the nfc tag to belong to the player
+                               "AIR/10000H~1", // Byte1-28 char array to hold the path to the folder
+                               11,             // Byte29 number of tracks in the specific folder
+                               1,              // Byte30 play mode assigne to the nfcTag
+                               1};             // Byte31 track or function for admin nfcTags
 
         // write NFC Data
         writeCard(&testdata);
       }
       else
       {
-        //tag is known, interprete remaining 15 byte of first chunk as folder name
+        //tag is known
         Serial.println("known card");
 
         File currentTrack;
         File currentDir;
-
+        
         Serial.println(dataIn.pname);
         Serial.println(dataIn.trackcnt);
-        Serial.println(dataIn.mode);
-        Serial.println(dataIn.special);
-        char filepath[50] = "/MUSIC/";
-        strcat(filepath, dataIn.pname);
-        currentDir = SD.open(filepath);
-        if (currentDir) Serial.print("opend file: ");
-        currentTrack = currentDir.openNextFile();
-        strcat(filepath, "/");
-        char fname[13];
-        currentTrack.getSFN(fname);
-        strcat(filepath, fname);
-        currentTrack.close();
-        currentDir.close();
-        Serial.println(filepath);
-        musicPlayer.startPlayingFile(filepath);
+        
+        strcpy(dirname, "/MUSIC/");
+        strcat(dirname, dataIn.pname);
+        // search in indexfile
+        char buffer[50];
+        ifstream sdin("/index.txt");
+        int line_number = 0;
+        while (true)
+        {
+          if (!sdin.getline(buffer, 50, '\n'))
+            break;
+          if (strstr(buffer, dirname))
+          {
+            Serial.print("found at line: ");
+            Serial.println(line_number + 1, DEC);
+            Serial.println(buffer);
+            
+            // read out track number, not required here but for testing purposes
+            // this will be necessary in adding a card
+            char *pch;
+            pch = strtok(buffer, "\t");
+            pch = strtok(NULL, "\t");
+            Serial.println(pch);
+
+            break;
+          }
+          ++line_number;
+        }
+        // goto 1st track position and read track name
+        sdin.seekg(0);
+        line_number=line_number-dataIn.trackcnt;
+        Serial.print("Goto Line:");
+        Serial.println(line_number,DEC);
+        for (int i = 0; i < line_number; i++)
+        {
+          sdin.ignore(50, '\n');
+        }
+        sdin.getline(fname, 13, '\n');
+        //strcat(dirname,"/");
+        //strcat(dirname,fname);
+        
+        Serial.println(fname);     
+
+        currentDir = SD.open(dirname);
+        //if (currentDir)
+          //Serial.print("opend file: ");
+        //currentTrack = currentDir.openNextFile();
+        strcat(dirname, "/");
+        //currentTrack.getSFN(fname);
+        strcat(dirname, fname);
+        //currentTrack.close();
+        currentDir.close(); //without the close it doesn't WORK
+        //NEEDS TO BE FIXED
+
+        //strcpy(fullname,dirname);
+        //strcat(fullname,fname);
+        Serial.println(dirname);
+        musicPlayer.startPlayingFile(dirname);
       }
     }
     else // nfc card removed
@@ -518,13 +560,13 @@ bool readCard(nfcTagData *dataIn)
     returnValue = false;
     return;
   }
-  for (int i = 0; i < 14; i++)
+  for (int i = 0; i < 13; i++)
   {
-    dataIn->pname[i + 12] = (char)readBuffer[i];
+    dataIn->pname[i + 15] = (char)readBuffer[i];
   }
-  dataIn->trackcnt = (uint8_t)readBuffer[14];
-  dataIn->mode = (uint8_t)readBuffer[15];
-  dataIn->special = (uint8_t)readBuffer[16];
+  dataIn->trackcnt = (uint8_t)readBuffer[13];
+  dataIn->mode = (uint8_t)readBuffer[14];
+  dataIn->special = (uint8_t)readBuffer[15];
 
   return returnValue;
 }
@@ -569,7 +611,6 @@ void indexDirectoryToFile(File dir, File *indexFile)
 {
   // Begin at the start of the directory
   dir.rewindDirectory();
-  //static char dirname[50] = "/MUSIC";
   int trackcnt = 0;
   while (true)
   {
@@ -582,6 +623,7 @@ void indexDirectoryToFile(File dir, File *indexFile)
       if (trackcnt != 0)
       {
         indexFile->write(dirname);
+        Serial.println(dirname);
         indexFile->write('\t');
         indexFile->print(trackcnt, DEC);
         indexFile->write('\r');
@@ -593,12 +635,12 @@ void indexDirectoryToFile(File dir, File *indexFile)
       pIndex = strrchr(dirname, '/'); // search last occurence of '/'
       if (pIndex == NULL)
       {
-        break;                        // no more '/' in the dirname
-      } 
+        break; // no more '/' in the dirname
+      }
       int index = pIndex - dirname;   // calculate index position from pointer addresses
       if (index == 0)
       {
-        break;                        // don't roll back any further, reached root
+        break; // don't roll back any further, reached root
       } 
       dirname[index] = '\0'; // null terminate at position of '/'
       break;
