@@ -15,10 +15,11 @@
 // include SPI, MP3, EEPROM and SD libraries
 #include <Arduino.h>
 #include <SPI.h>
-#include <Adafruit_VS1053.h>
+#include "Adafruit_VS1053.h"
 //#include <SD.h>
 #include <SdFat.h>
-SdFat SD; // define Type SD to by of Type SdFat, this allows to use SdFat librarie instead of SD.h
+#include <sdios.h>
+
 #include <MFRC522.h>
 #include <EEPROM.h>
 
@@ -42,15 +43,15 @@ SdFat SD; // define Type SD to by of Type SdFat, this allows to use SdFat librar
 struct nfcTagData // struct to hold NFC tag data
 {
   uint8_t cookie;   // byte 0 nfc cookie to identify the nfc tag to belong to the player
-  char folder[28];  // byte 1-28 char array to hold the path to the folder
+  char pname[28];   // byte 1-28 char array to hold the path to the folder
   uint8_t trackcnt; // byte 29 number of tracks in the specific folder
   uint8_t mode;     // byte 30play mode assigne to the nfcTag
   uint8_t special;  // byte 31 track or function for admin nfcTags
 };
 
 // function definition
-void printDirectory(File dir, int numTabs);
 void indexDirectory(File dir);
+void indexDirectoryToFile(File dir, File *indexFile);
 static void nextTrack(uint16_t track);
 int voiceMenu(int numberOfOptions, int startMessage,
               int messageOffset, bool preview = false,
@@ -70,6 +71,8 @@ MFRC522 mfrc522(SS_PIN, RST_PIN);
 
 // global variables
 File root;
+SdFat SD;            // file system object
+SdFile file;         // Use for file creation in folders.
 uint8_t volume = 40; // settings of amplifier
 
 // NFC management
@@ -113,29 +116,44 @@ void setup()
   /*------------------------
   setup SD card
   ------------------------*/
+  Serial.print("Initializing SD card...");
   if (!SD.begin(CARDCS))
   {
     Serial.println(F("SD failed, or not present"));
     while (1)
       ; // don't do anything more
   }
-
+  Serial.println("initialization done.");
+  
   /*------------------------
   startup program
   ------------------------*/
+  
+  // index SD card
+  File indexfile;
+  if (SD.exists("/index.txt"))                          // remove existing index file from SD card
+  {
+    SD.remove("/index.txt");
+  }
+
+  indexfile = SD.open("/index.txt", FILE_WRITE);        // open new indexfile on SD card
+  if (indexfile)
+  {
+    Serial.println("Index File opend, start indexing");
+  }
+  else
+  {
+    Serial.println("error opening Index File");
+  }
+  root = SD.open("/MUSIC/");
+  indexDirectoryToFile(root, &indexfile);
+  
+  indexfile.close();
+  Serial.println("Indexed SD card");
+  root.close();
 
   // initialize random number geneartor by reading analog value from A0
   randomSeed(analogRead(A0));
-
-  // list and index files
-  root = SD.open("/");
-  indexDirectory(root);
-  root.close();
-
-  // Start Playing a file in the background
-  //currentDir = SD.open("/MUSIC/AIR/10000H~1/");
-  //currentTrack = currentDir.openNextFile();
-  //musicPlayer.startPlayingFile(currentTrack);
 }
 
 /* Main Loop of program
@@ -273,16 +291,19 @@ void loop()
         File currentTrack;
         File currentDir;
 
-        Serial.println(dataIn.folder);
+        Serial.println(dataIn.pname);
         Serial.println(dataIn.trackcnt);
         Serial.println(dataIn.mode);
         Serial.println(dataIn.special);
         char filepath[50] = "/MUSIC/";
-        strcat(filepath, dataIn.folder);
+        strcat(filepath, dataIn.pname);
         currentDir = SD.open(filepath);
+        if (currentDir) Serial.print("opend file: ");
         currentTrack = currentDir.openNextFile();
         strcat(filepath, "/");
-        strcat(filepath, currentTrack.name());
+        char fname[13];
+        currentTrack.getSFN(fname);
+        strcat(filepath, fname);
         currentTrack.close();
         currentDir.close();
         Serial.println(filepath);
@@ -325,40 +346,6 @@ void loop()
 /* support functions
 ==========================================================================================
 */
-
-/// File listing helper
-void printDirectory(File dir, int numTabs)
-{
-  char name[13];
-  while (true)
-  {
-
-    File entry = dir.openNextFile();
-    if (!entry)
-    {
-      // no more files
-      break;
-    }
-    for (uint8_t i = 0; i < numTabs; i++)
-    {
-      Serial.print('\t');
-    }
-    entry.getSFN(name);
-    Serial.print(name);
-    if (entry.isDirectory())
-    {
-      Serial.println("/");
-      printDirectory(entry, numTabs + 1);
-    }
-    else
-    {
-      // files have sizes, directories do not
-      Serial.print("\t\t");
-      Serial.println(entry.size(), DEC);
-    }
-    entry.close();
-  }
-};
 
 int voiceMenu(int numberOfOptions, int startMessage, int messageOffset,
               bool preview = false, int previewFromFolder = 0)
@@ -519,7 +506,7 @@ bool readCard(nfcTagData *dataIn)
   dataIn->cookie = readBuffer[0];
   for (int i = 0; i < 15; i++)
   {
-    dataIn->folder[i] = (char)readBuffer[i + 1];
+    dataIn->pname[i] = (char)readBuffer[i + 1];
   }
 
   //read next 18bit
@@ -533,7 +520,7 @@ bool readCard(nfcTagData *dataIn)
   }
   for (int i = 0; i < 14; i++)
   {
-    dataIn->folder[i + 12] = (char)readBuffer[i];
+    dataIn->pname[i + 12] = (char)readBuffer[i];
   }
   dataIn->trackcnt = (uint8_t)readBuffer[14];
   dataIn->mode = (uint8_t)readBuffer[15];
@@ -577,6 +564,73 @@ void dump_byte_array(byte *buffer, byte bufferSize)
   }
 }
 
+void indexDirectoryToFile(File dir, File *indexFile)
+{
+  // Begin at the start of the directory
+  dir.rewindDirectory();
+  static char dirname[50] = "/MUSIC";
+  int trackcnt = 0;
+  char fname[13];
+  while (true)
+  {
+    Serial.print(".");
+    File entry = dir.openNextFile();
+    if (!entry)
+    {
+      // no more files or folder in this directory
+      // print current directory name if there are MP3 tracks in the directory
+      if (trackcnt != 0)
+      {
+        indexFile->write(dirname);
+        indexFile->write('\t');
+        indexFile->print(trackcnt, DEC);
+        indexFile->write('\r');
+        indexFile->write('\n');
+        trackcnt = 0;
+      }
+      // roll back directory name
+      char *pIndex;
+      pIndex = strrchr(dirname, '/'); // search last occurence of '/'
+      if (pIndex == NULL)
+      {
+        break;                        // no more '/' in the dirname
+      } 
+      int index = pIndex - dirname;   // calculate index position from pointer addresses
+      if (index == 0)
+      {
+        break;                        // don't roll back any further, reached root
+      } 
+      dirname[index] = '\0'; // null terminate at position of '/'
+      break;
+    }
+    // there is an entry
+    entry.getSFN(fname);
+    // recurse for directories, otherwise print the file
+    if (entry.isDirectory())
+    {
+      //entry is a directory
+      //update dirname and reset trackcnt
+      strcat(dirname, "/");
+      strcat(dirname, fname);
+      trackcnt = 0;
+      indexDirectoryToFile(entry, indexFile);
+    }
+    else
+    {
+      char *pch;
+      pch = strstr(fname, ".MP3");
+      if (pch)
+      {
+        indexFile->write(fname);
+        indexFile->write('\r');
+        indexFile->write('\n');
+        trackcnt += 1;
+      }
+    }
+    entry.close();
+  }
+}
+
 /// File indexing
 void indexDirectory(File dir)
 {
@@ -590,6 +644,7 @@ void indexDirectory(File dir)
   while (true)
   {
     File entry = dir.openNextFile();
+
     if (!entry)
     {
       // no more files or folder in this directory
@@ -644,35 +699,3 @@ void indexDirectory(File dir)
     entry.close();
   }
 }
-
-/*vector splitpath(const string &str, const set delimiters)
-{
-  std::vector<std::string> result;
-
-  char const *pch = str.c_str();
-  char const *start = pch;
-  for (; *pch; ++pch)
-  {
-    if (delimiters.find(*pch) != delimiters.end())
-    {
-      if (start != pch)
-      {
-        std::string str(start, pch);
-        result.push_back(str);
-      }
-      else
-      {
-        result.push_back("");
-      }
-      start = pch + 1;
-    }
-  }
-  result.push_back(start);
-
-  return result;
-}
-
-... std::set<char> delims{'\\'};
-
-std::vector<std::string> path = splitpath("C:\\MyDirectory\\MyFile.bat", delims);
-cout << path.back() << endl;*/
