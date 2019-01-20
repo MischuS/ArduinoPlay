@@ -50,7 +50,6 @@ struct nfcTagData // struct to hold NFC tag data
 };
 
 // function definition
-void indexDirectory(File dir);
 void indexDirectoryToFile(File dir, File *indexFile);
 static void nextTrack(uint16_t track);
 int voiceMenu(int numberOfOptions, int startMessage,
@@ -70,9 +69,11 @@ Adafruit_VS1053_FilePlayer musicPlayer = Adafruit_VS1053_FilePlayer(SHIELD_RESET
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
 // global variables
-File root;
+File root;           // root file
 SdFat SD;            // file system object
-SdFile file;         // Use for file creation in folders.
+char dirname[50];   // buffer to hold current dirname
+char fname[13];     // buffer to hold current file name
+//SdFile file;         // Use for file creation in folders.
 uint8_t volume = 40; // settings of amplifier
 
 // NFC management
@@ -135,7 +136,6 @@ void setup()
   {
     SD.remove("/index.txt");
   }
-
   indexfile = SD.open("/index.txt", FILE_WRITE);        // open new indexfile on SD card
   if (indexfile)
   {
@@ -145,9 +145,9 @@ void setup()
   {
     Serial.println("error opening Index File");
   }
-  root = SD.open("/MUSIC/");
+  strcpy(dirname,"/MUSIC");
+  root = SD.open(dirname);
   indexDirectoryToFile(root, &indexfile);
-  
   indexfile.close();
   Serial.println("Indexed SD card");
   root.close();
@@ -564,13 +564,13 @@ void dump_byte_array(byte *buffer, byte bufferSize)
   }
 }
 
+// routine to index SD file structure
 void indexDirectoryToFile(File dir, File *indexFile)
 {
   // Begin at the start of the directory
   dir.rewindDirectory();
-  static char dirname[50] = "/MUSIC";
+  //static char dirname[50] = "/MUSIC";
   int trackcnt = 0;
-  char fname[13];
   while (true)
   {
     Serial.print(".");
@@ -626,75 +626,6 @@ void indexDirectoryToFile(File dir, File *indexFile)
         indexFile->write('\n');
         trackcnt += 1;
       }
-    }
-    entry.close();
-  }
-}
-
-/// File indexing
-void indexDirectory(File dir)
-{
-  // Begin at the start of the directory
-  dir.rewindDirectory();
-
-  static String dirname = "/MUSIC";
-  int trackcnt = 0;
-  char fname[13];
-
-  while (true)
-  {
-    File entry = dir.openNextFile();
-
-    if (!entry)
-    {
-      // no more files or folder in this directory
-
-      // print current directory name if there are MP3 tracks in the directory
-      if (trackcnt != 0)
-      {
-        Serial.print("No more entries in: ");
-        Serial.print(dirname);
-        // print count of tracks in the directory
-        Serial.print("\t Trackcount: ");
-        Serial.println(trackcnt, DEC);
-      }
-      // rool back directory name
-      int index = 0;
-      int lastIndex = 0;
-      while (index != -1)
-      {
-        lastIndex = index;
-        index = dirname.indexOf("/", lastIndex + 1);
-      }
-      dirname.remove(lastIndex);
-      // leave function
-      break;
-    }
-
-    entry.getSFN(fname);
-
-    // recurse for directories, otherwise print the file
-    if (entry.isDirectory())
-    {
-      //entry is a directory
-      //update dirname and reset trackcnt
-      dirname += "/";
-      dirname += fname;
-      trackcnt = 0;
-      indexDirectory(entry);
-    }
-    else
-    {
-      //if (fname.endsWith("MP3"))
-      //{
-      char *pch;
-      pch = strstr(fname, ".MP3");
-      if (pch)
-      {
-        Serial.println(fname);
-        trackcnt += 1;
-      }
-      //}
     }
     entry.close();
   }
