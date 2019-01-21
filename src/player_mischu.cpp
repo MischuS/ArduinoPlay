@@ -111,20 +111,19 @@ void setup()
   musicPlayer.begin();                                 // setup music player
   Serial.println(F("VS1053 found"));                   // print music player info
   musicPlayer.setVolume(volume, volume);               // set volume for R and L chan, 0: loudest, 256: quietest
-  Serial.println(volume);                              // print set volume on terminal
   musicPlayer.useInterrupt(VS1053_FILEPLAYER_PIN_INT); // setup music player to use interupts
 
   /*------------------------
   setup SD card
   ------------------------*/
-  Serial.print("Initializing SD card...");
+  Serial.print(F("Initializing SD card..."));
   if (!SD.begin(CARDCS))
   {
     Serial.println(F("SD failed, or not present"));
     while (1)
       ; // don't do anything more
   }
-  Serial.println("initialization done.");
+  Serial.println(F("initialization done."));
 
   /*------------------------
   startup program
@@ -138,17 +137,17 @@ void setup()
   indexfile = SD.open("/index.txt", FILE_WRITE); // open new indexfile on SD card
   if (indexfile)
   {
-    Serial.println("Index File opend, start indexing");
+    Serial.println(F("Index File opend, start indexing"));
   }
   else
   {
-    Serial.println("error opening Index File");
+    Serial.println(F("error opening Index File"));
   }
-  strcpy(dirname, "/MUSIC");
+  strcpy(dirname, "/MUSIC/");
   root = SD.open(dirname);
   indexDirectoryToFile(root, &indexfile);
   indexfile.close();
-  Serial.println("Indexed SD card");
+  Serial.println(F("Indexed SD card"));
   root.close();
 
   // initialize random number geneartor by reading analog value from A0
@@ -182,7 +181,7 @@ void loop()
       if (musicPlayer.stopped())
       {
         //currentTrack.seek(0);
-        Serial.print("Start Playing: ");
+        Serial.print(F("Start Playing: "));
         //Serial.print(currentTrack.name());
         //Serial.print("  Current Position: ");
         //Serial.println(currentTrack.position());
@@ -191,7 +190,7 @@ void loop()
       }
       else
       {
-        Serial.print("Stop Playing: ");
+        Serial.print(F("Stop Playing: "));
         musicPlayer.stopPlaying();
         //Serial.println(currentTrack.name());
       }
@@ -202,12 +201,12 @@ void loop()
     {
       if (!musicPlayer.paused())
       {
-        Serial.println("Paused");
+        Serial.println(F("Paused"));
         musicPlayer.pausePlaying(true);
       }
       else
       {
-        Serial.println("Resumed");
+        Serial.println(F("Resumed"));
         musicPlayer.pausePlaying(false);
       }
     }
@@ -229,7 +228,7 @@ void loop()
     }
     if (c == 'n')
     {
-      Serial.print("Play next track: ");
+      Serial.print(F("Play next track: "));
       //currentTrack = currentDir.openNextFile();
       //Serial.print(currentTrack.name());
       //Serial.print("\t");
@@ -255,7 +254,7 @@ void loop()
       if (mfrc522.PICC_ReadCardSerial())
         ;
       break;
-      Serial.println("Faild to read card");
+      Serial.println(F("Faild to read card"));
     }
   }
   if (newTagStatus != tagStatus) // nfc card status changed
@@ -263,7 +262,7 @@ void loop()
     tagStatus = newTagStatus;
     if (tagStatus) // nfc card added
     {
-      Serial.println("Card detected");
+      Serial.println(F("Card detected"));
       nfcTagData dataIn;
       readCard(&dataIn);
 
@@ -271,7 +270,7 @@ void loop()
       if (dataIn.cookie != 42)
       {
         // tag is not know, init it with demo data
-        Serial.println("Unknown Card");
+        Serial.println(F("Unknown Card"));
 
         nfcTagData testdata = {42,             // cookie to identify the nfc tag to belong to the player
                                "AIR/10000H~1", // Byte1-28 char array to hold the path to the folder
@@ -285,7 +284,7 @@ void loop()
       else
       {
         //tag is known
-        Serial.println("known card");
+        Serial.println(F("known card"));
 
         File currentTrack;
         File currentDir;
@@ -323,7 +322,7 @@ void loop()
         // goto 1st track position and read track name
         sdin.seekg(0);
         line_number=line_number-dataIn.trackcnt;
-        Serial.print("Goto Line:");
+        Serial.print(F("Goto Line:"));
         Serial.println(line_number,DEC);
         for (int i = 0; i < line_number; i++)
         {
@@ -354,7 +353,7 @@ void loop()
     }
     else // nfc card removed
     {
-      Serial.println("Card removed");
+      Serial.println(F("Card removed"));
       musicPlayer.stopPlaying();
     }
   }
@@ -614,7 +613,7 @@ void indexDirectoryToFile(File dir, File *indexFile)
   int trackcnt = 0;
   while (true)
   {
-    Serial.print(".");
+    Serial.print(F("."));
     File entry = dir.openNextFile();
     if (!entry)
     {
@@ -623,9 +622,9 @@ void indexDirectoryToFile(File dir, File *indexFile)
       if (trackcnt != 0)
       {
         indexFile->write(dirname);
-        Serial.println(dirname);
+        //Serial.println(dirname);
         indexFile->write('\t');
-        indexFile->print(trackcnt, DEC);
+        //indexFile->print(trackcnt, DEC);
         indexFile->write('\r');
         indexFile->write('\n');
         trackcnt = 0;
