@@ -1,40 +1,41 @@
 /***************************************************
-  This is an example for the Adafruit VS1053 Codec Breakout
+Adruino Play
 
-  Designed specifically to work with the Adafruit VS1053 Codec Breakout
-  ----> https://www.adafruit.com/products/1381
+MischuS
 
-  Adafruit invests time and resources providing this open source code,
-  please support Adafruit and open-source hardware by purchasing
-  products from Adafruit!
+****************************************************/
 
-  Written by Limor Fried/Ladyada for Adafruit Industries.
-  BSD license, all text above must be included in any redistribution
- ****************************************************/
-
-// include SPI, MP3, EEPROM and SD libraries
+// include SPI, MP3, Buttons and SDfat libraries
 #include <Arduino.h>
 #include <SPI.h>
-#include "Adafruit_VS1053.h"
-//#include <SD.h>
+#include <Adafruit_VS1053.h>
 #include <SdFat.h>
+#include <JC_Button.h>
 #include <sdios.h>
 
 #include <MFRC522.h>
 #include <EEPROM.h>
 
-// define the pins used
+// define the pins used for SPI Communication
 #define CLK 13       // SPI Clock
 #define MISO 12      // SPI master input data
 #define MOSI 11      // SPI master output data
 #define SHIELD_CS 7  // VS1053 chip select pin
 #define SHIELD_DCS 6 // VS1053 Data/command select pin (output)
-#define DREQ 3       // VS1053 Data request, ideally an Interrupt pin
+#define DREQ 3       // VS1053 Data request
 #define CARDCS 4     // SD chip select pin
 #define RST_PIN 9    // MFRC522 reset pin
 #define SS_PIN 10    // MFRC522 chip select pin
 
+// define reset pin
 #define SHIELD_RESET -1 // VS1053 reset pin (unused!)
+
+// define button PINs
+#define yellowButton A2
+#define blueButton A1
+#define greenButton A0
+
+#define LONG_PRESS 1000
 
 // define communication settings
 #define BAUDRATE 38400 // baudrate
@@ -84,22 +85,22 @@ void dump_byte_array(byte *dumpbuffer, byte dumpbufferSize); // dump a byte aray
 // create instance of musicPlayer object
 Adafruit_VS1053_FilePlayer musicPlayer = Adafruit_VS1053_FilePlayer(SHIELD_RESET, SHIELD_CS, SHIELD_DCS, DREQ, CARDCS);
 
-// create instance of MFRC522 object
-MFRC522 mfrc522(SS_PIN, RST_PIN);
+// create instance of card reader
+MFRC522 mfrc522(SS_PIN, RST_PIN); // create instance of MFRC522 object
+
+// objects for SD handling
+ifstream sdin; // input stream for searching in indexfile
+SdFat SD;      // file system object
+
+// Buttons
+Button leftButton(yellowButton);
+Button middleButton(blueButton);
+Button rightButton(greenButton);
 
 // global variables
-File root;      // root file
-File indexfile; // indexfile
-SdFat SD;       // file system object
-//char dirname[50];    // buffer to hold current dirname
-char buffer[50];     // general buffer used throught the program
 uint8_t volume = 40; // settings of amplifier
-//uint8_t currentTrack;
-nfcTagData dataIn;
-ifstream sdin; // input stream for searching in indexfile
 
 // NFC management
-bool tagStatus = false;     // tagStatus=true, tag is present, tagStatus=false no tag present
 MFRC522::StatusCode status; // status code of MFRC522 operations
 uint8_t pageAddr = 0x06;    // start using nfc tag starting from page 6
                             // ultraligth memory has 16 pages, 4 bytes per page
@@ -143,16 +144,26 @@ void setup()
   {
     Serial.println(F("SD failed, or not present"));
     while (1)
-      ; // don't do anything more
+      ; // SD failed, program stopped
   }
   Serial.println(F("initialization done."));
 
   /*------------------------
+  set pin mode of buttons
+  ------------------------*/
+  pinMode(yellowButton, INPUT_PULLUP);
+  pinMode(blueButton, INPUT_PULLUP);
+  pinMode(greenButton, INPUT_PULLUP);
+
+  /*------------------------
   startup program
   ------------------------*/
+  randomSeed(analogRead(A0)); // initialize random number geneartor
 
-  // initialize random number geneartor by reading analog value from A0
-  randomSeed(analogRead(A0));
+  if (digitalRead(yellowButton) == LOW && digitalRead(blueButton) == LOW && digitalRead(greenButton) == LOW)
+  {
+    Serial.println(F("Reset everything"));
+  }
 }
 
 /* Main Loop of program
@@ -161,8 +172,32 @@ void setup()
 
 void loop()
 {
+  /*------------------------
+  init variables
+  ------------------------*/
+  bool tagStatus = false; // tagStatus=true, tag is present, tagStatus=false no tag present
   playDataInfo playData;
-  // serial IF handling
+  nfcTagData dataIn;
+
+  /*------------------------
+  buttons handling
+  ------------------------*/
+  leftButton.read();
+  middleButton.read();
+  rightButton.read();
+
+  if (leftButton.wasReleased())
+    Serial.println(F("Yellow Button"));
+
+  if (middleButton.wasReleased())
+    Serial.println(F("BlueButton"));
+
+  if (rightButton.wasReleased())
+    Serial.println(F("GreenButton"));
+
+  /*------------------------
+  serial IF handling
+  ------------------------*/
   // i = index SD card for music folders and mp3 files
   // ' ' = PAUSE/PLAY
   // + = VOLUME up
@@ -180,7 +215,7 @@ void loop()
       {
         SD.remove("/index.txt");
       }
-      indexfile = SD.open("/index.txt", FILE_WRITE); // open new indexfile on SD card
+      File indexfile = SD.open("/index.txt", FILE_WRITE); // open new indexfile on SD card
       if (indexfile)
       {
         Serial.println(F("Index File opend, start indexing"));
@@ -189,7 +224,7 @@ void loop()
       {
         Serial.println(F("error opening Index File"));
       }
-      root = SD.open("/MUSIC");
+      File root = SD.open("/MUSIC");
       indexDirectoryToFile(root, &indexfile);
       indexfile.close();
       Serial.println(F("Indexed SD card"));
@@ -272,8 +307,7 @@ void loop()
                                1,              // Byte30 play mode assigne to the nfcTag
                                1};             // Byte31 track or function for admin nfcTags
 
-        // write NFC Data
-        writeCard(&testdata);
+        writeCard(&testdata); // write NFC Data
       }
       else
       {
@@ -298,27 +332,6 @@ void loop()
       musicPlayer.stopPlaying();
     }
   }
-  // if player is stopped start player
-  /*if (musicPlayer.stopped())
-  {
-    Serial.println("No track playing");
-    if (musicPlayer.startPlayingFile(currentTrack))
-    {
-      Serial.print(F("Started Playing: "));
-      Serial.println(currentTrack.name());
-    }
-    else
-    {
-      Serial.println(F("Failed to start"));
-    }
-  }*/
-
-  // no card present stop playing music
-  /*if (!musicPlayer.stopped())
-  {
-    musicPlayer.stopPlaying();
-    
-  }*/
   delay(500);
   Serial.print(".");
 }
@@ -551,19 +564,21 @@ void findPath(playDataInfo *playData)
 {
   uint8_t trackcnt = 0;
   uint8_t line_number = 0;
+  char linebuffer[50]; // for optimization fullname buffer might be reused...
+
   sdin.open("/index.txt"); // open indexfile
   sdin.seekg(0);           // go to file position 0
 
   while (true)
   {
-    if (!sdin.getline(buffer, 50, '\n'))
+    if (!sdin.getline(linebuffer, 50, '\n'))
       break;
-    if (strstr(buffer, playData->dirname))
+    if (strstr(linebuffer, playData->dirname))
     {
       // read out track number, not required here but for testing purposes
       // this will be necessary in adding a card
       char *pch;
-      pch = strtok(buffer, "\t");
+      pch = strtok(linebuffer, "\t");
       pch = strtok(NULL, "\t");
       int trackcnt = pch - '0';
       //Serial.println(pch);
