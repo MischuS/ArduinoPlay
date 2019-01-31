@@ -14,7 +14,7 @@ MischuS
 #include <sdios.h>
 
 #include <MFRC522.h>
-#include <EEPROM.h>
+//#include <EEPROM.h>
 
 // define the pins used for SPI Communication
 #define CLK 13       // SPI Clock
@@ -70,14 +70,11 @@ struct playDataInfo //
 // function definition
 void indexDirectoryToFile(File dir, File *indexFile);
 static void nextTrack(uint16_t track);
-int voiceMenu(playDataInfo *playData,
-              int numberOfOptions, int startMessage,
-              int messageOffset, bool preview = false,
-              int previewFromFolder = 0);                    // voice menu for setting up device
-void resetCard();                                            // resets a card
-void setupCard(nfcTagData *nfcData, playDataInfo *playData); // first time setup of a card
-bool readCard(nfcTagData *dataIn);                           // reads card content and save it in nfcTagObject
-void writeCard(nfcTagData *dataOut);                         // writes card content from nfcTagObject
+int voiceMenu(playDataInfo *playData, int numberOfOptions, bool preview); // voice menu for setting up device
+void resetCard();                                                         // resets a card
+void setupCard(nfcTagData *nfcData, playDataInfo *playData);              // first time setup of a card
+bool readCard(nfcTagData *dataIn);                                        // reads card content and save it in nfcTagObject
+bool writeCard(nfcTagData *dataOut);                                      // writes card content from nfcTagObject
 void findPath(playDataInfo *playData);
 void getTrackName(playDataInfo *playData);
 void playFolder(playDataInfo *playData, uint8_t foldernum);
@@ -322,7 +319,8 @@ void loop()
       {
         Serial.println(F("error opening Index File"));
       }
-      File root = SD.open("/MUSIC");
+      //File root = SD.open("/MUSIC");
+      File root = SD.open("/");
       indexDirectoryToFile(root, &indexfile);
       indexfile.close();
       Serial.println(F("Indexed SD card"));
@@ -395,9 +393,6 @@ void loop()
     {
       Serial.println(F("Card detected"));
       readCard(&dataIn);
-      Serial.print("Read Data Cookie:  ");
-      Serial.println(dataIn.cookie, DEC);
-      //if (dataIn.cookie != 857536)
       if (dataIn.cookie != 42)
       {
         // tag is not know, init card
@@ -413,7 +408,6 @@ void loop()
         strcpy(playData.dirname, "/MUSIC/");
         strcat(playData.dirname, dataIn.pname);
         playData.trackcnt = dataIn.trackcnt;
-        Serial.println(playData.trackcnt, DEC);
         playData.mode = dataIn.mode;
         playData.currentTrack = 1;
         // search linenumber of path in indexfile
@@ -438,29 +432,28 @@ void loop()
 ==========================================================================================
 */
 
-int voiceMenu(playDataInfo *playData, int numberOfOptions, int startMessage, int messageOffset,
-              bool preview = false, int previewFromFolder = 0)
+int voiceMenu(playDataInfo *playData, int numberOfOptions, bool preview)
 {
   Serial.println("entering voice menu");
 
   musicPlayer.stopPlaying();
   int returnValue = 0;
-  File messageFile;
-  File messageRoot = SD.open("/VOICE");
-  strcpy(playData->dirname, "/VOICE");
+  //File messageFile;
+  //File messageRoot = SD.open("/VOICE");
+  //strcpy(playData->dirname, "/VOICE");
 
-  if (startMessage != 0)
-  {
-    messageRoot.rewindDirectory();
-    for (int i = 0; i < startMessage; i++)
-    {
-      messageFile = messageRoot.openNextFile();
-    }
-    messageFile.getSFN(playData->fname);
-    messageRoot.close();
+  //if (startMessage != 0)
+  //{
+  //  messageRoot.rewindDirectory();
+  //  for (int i = 0; i < startMessage; i++)
+  //  {
+  //    messageFile = messageRoot.openNextFile();
+  //  }
+  //  messageFile.getSFN(playData->fname);
+  //  messageRoot.close();
 
-    startPlaying(playData);
-  }
+  startPlaying(playData);
+  //}
 
   do
   {
@@ -533,25 +526,34 @@ void resetCard()
 void setupCard(nfcTagData *nfcData, playDataInfo *playData)
 {
   Serial.println(F("configure new card"));
-  musicPlayer.stopPlaying();
 
   // find playfolder by voiceMenu
-  voiceMenu(playData, 99, 256, 0, true);
+  strcpy(playData->dirname, "/VOICE");
+  strcpy(playData->fname, "0300_N~1.mp3");
+  int result = voiceMenu(playData, 0, true);
 
   // needs if conditions, only if successfull save data
-  Serial.println(F("NFC Data:"));
-  nfcData->cookie = 42;
-  strncpy(nfcData->pname, playData->dirname + 7, 28);
-  Serial.println(nfcData->pname);
-  nfcData->trackcnt = playData->trackcnt;
-  
+  if (result > 0)
+  {
+    Serial.println(F("NFC Data:"));
+    nfcData->cookie = 42;
+    strncpy(nfcData->pname, playData->dirname + 7, 28);
+    Serial.println(nfcData->pname);
+    nfcData->trackcnt = playData->trackcnt;
+  }
+  else
+  {
+    strcpy(playData->dirname, "/VOICE");
+    strcpy(playData->fname, "0401_E~1.mp3");
+  }
+
   // Wiedergabemodus abfragen
   // voiceMenu(6, 310, 310);
-  voiceMenu(playData,6,257,257)
+  //voiceMenu(playData,6,257,257)
   //myCard.mode = 1;
   nfcData->mode = 1;
   nfcData->special = 1;
-  
+
   /*Serial.print(F("cookie:\t"));
   Serial.println(nfcData->cookie);
   Serial.print(F("folder:\t"));
@@ -564,8 +566,7 @@ void setupCard(nfcTagData *nfcData, playDataInfo *playData)
   Serial.println(nfcData->special);*/
   // write data for card
   writeCard(nfcData);
-  
-  
+
   /*
   // Hörbuchmodus -> Fortschritt im EEPROM auf 1 setzen
   EEPROM.write(myCard.folder,1);
@@ -601,7 +602,7 @@ bool readCard(nfcTagData *dataIn)
     Serial.print(F("MIFARE_Read() failed: "));
     Serial.println(mfrc522.GetStatusCodeName(status));
     returnValue = false;
-    return;
+    return returnValue;
   }
 
   dataIn->cookie = readBuffer[0];
@@ -617,7 +618,7 @@ bool readCard(nfcTagData *dataIn)
     Serial.print(F("MIFARE_Read() failed: "));
     Serial.println(mfrc522.GetStatusCodeName(status));
     returnValue = false;
-    return;
+    return returnValue;
   }
   for (uint8_t i = 0; i < 13; i++)
   {
@@ -630,7 +631,7 @@ bool readCard(nfcTagData *dataIn)
   return returnValue;
 }
 
-void writeCard(nfcTagData *dataOut)
+bool writeCard(nfcTagData *dataOut)
 {
   bool returnValue = true;
   byte writeBuffer[32];
@@ -646,7 +647,7 @@ void writeCard(nfcTagData *dataOut)
       Serial.print(F("MIFARE_Write() failed: "));
       Serial.println(mfrc522.GetStatusCodeName(status));
       returnValue = false;
-      return;
+      return returnValue;
     }
   }
   Serial.println(F("MIFARE_Ultralight_Write() OK "));
@@ -672,7 +673,6 @@ track handling routines MOVE to extra file later on
 // find line in index file for given path (from NFC Tag)
 void findPath(playDataInfo *playData)
 {
-  uint8_t trackcnt = 0;
   uint8_t line_number = 0;
 
   sdin.open("/index.txt"); // open indexfile
@@ -699,8 +699,6 @@ void getTrackName(playDataInfo *playData)
   sdin.seekg(0);
 
   uint8_t line_number = playData->pathLine - playData->trackcnt + playData->currentTrack - 1;
-  Serial.print(F("targetline:\t"));
-  Serial.println(line_number, DEC);
   for (uint8_t i = 1; i < line_number; i++)
   {
     sdin.ignore(50, '\n');
@@ -810,7 +808,8 @@ routine to index SD file structure
 void indexDirectoryToFile(File dir, File *indexFile)
 {
   char fname[13];
-  static char dirname[50] = "/MUSIC";
+  //static char dirname[50] = "/MUSIC";
+  static char dirname[50] = "/";
 
   // Begin at the start of the directory
   dir.rewindDirectory();
@@ -825,7 +824,7 @@ void indexDirectoryToFile(File dir, File *indexFile)
       // print current directory name if there are MP3 tracks in the directory
       if (trackcnt != 0)
       {
-        indexFile->write(dirname);
+        indexFile->write(dirname + 1); // avoid printing / at the "begining"
         indexFile->write('\t');
         indexFile->print(trackcnt);
         indexFile->write('\r');
@@ -863,6 +862,8 @@ void indexDirectoryToFile(File dir, File *indexFile)
     {
       char *pch;
       pch = strstr(fname, ".MP3");
+      if (pch == NULL)
+        pch = strstr(fname, ".mp3");
       if (pch)
       {
         indexFile->write(fname);
