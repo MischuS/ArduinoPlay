@@ -73,11 +73,11 @@ static void nextTrack(uint16_t track);
 int voiceMenu(playDataInfo *playData,
               int numberOfOptions, int startMessage,
               int messageOffset, bool preview = false,
-              int previewFromFolder = 0);                 // voice menu for setting up device
-void resetCard();                                         // resets a card
-void setupCard(nfcTagData *data, playDataInfo *playData); // first time setup of a card
-bool readCard(nfcTagData *dataIn);                        // reads card content and save it in nfcTagObject
-void writeCard(nfcTagData *dataOut);                      // writes card content from nfcTagObject
+              int previewFromFolder = 0);                    // voice menu for setting up device
+void resetCard();                                            // resets a card
+void setupCard(nfcTagData *nfcData, playDataInfo *playData); // first time setup of a card
+bool readCard(nfcTagData *dataIn);                           // reads card content and save it in nfcTagObject
+void writeCard(nfcTagData *dataOut);                         // writes card content from nfcTagObject
 void findPath(playDataInfo *playData);
 void getTrackName(playDataInfo *playData);
 void playFolder(playDataInfo *playData, uint8_t foldernum);
@@ -440,8 +440,7 @@ int voiceMenu(playDataInfo *playData, int numberOfOptions, int startMessage, int
   int returnValue = 0;
   File messageFile;
   File messageRoot = SD.open("/VOICE");
-
-  strcpy(playData->dirname, "/VOICE/");
+  strcpy(playData->dirname, "/VOICE");
   //Serial.println(playData->dirname);
 
   if (startMessage != 0)
@@ -453,8 +452,7 @@ int voiceMenu(playDataInfo *playData, int numberOfOptions, int startMessage, int
     }
     messageFile.getSFN(playData->fname);
     messageRoot.close();
-    strcpy(playData->fullname, playData->dirname);
-    strcat(playData->fullname, playData->fname);
+
     startPlaying(playData);
   }
 
@@ -584,7 +582,7 @@ void resetCard()
   }
 }
 
-void setupCard(nfcTagData *data, playDataInfo *playData)
+void setupCard(nfcTagData *nfcData, playDataInfo *playData)
 {
   //musicPlayer.stopPlaying();
   //SD.chdir("/VOICE/");
@@ -593,6 +591,30 @@ void setupCard(nfcTagData *data, playDataInfo *playData)
 
   // find playfolder by voiceMenu
   voiceMenu(playData, 99, 256, 0, true);
+  
+  // needs if conditions, only if successfull save data
+  Serial.println(F("NFC Data:"));
+  nfcData->cookie = 42;
+  strncpy(nfcData->pname, playData->dirname + 7, 28);
+  Serial.println(nfcData->pname);
+  nfcData->trackcnt = playData->trackcnt;
+  nfcData->mode = 1;
+  nfcData->special = 1;
+
+  Serial.print(F("cookie:\t"));
+  Serial.println(nfcData->cookie);
+  Serial.print(F("folder:\t"));
+  Serial.println(nfcData->pname);
+  Serial.print(F("tracknumber:\t"));
+  Serial.println(nfcData->trackcnt);
+  Serial.print(F("playmode:\t"));
+  Serial.println(nfcData->mode);
+  Serial.print(F("function:\t"));
+  Serial.println(nfcData->special);
+  
+  // write data for card
+  writeCard(nfcData);
+  
   //myCard.folder = 1;
 
   // Wiedergabemodus abfragen
@@ -611,11 +633,12 @@ void setupCard(nfcTagData *data, playDataInfo *playData)
   // Admin Funktionen
   if (myCard.mode == 6)
     myCard.special = voiceMenu(3, 320, 320);
-
+;*/
   
-  // Karte ist konfiguriert -> speichern
-  musicPlayer.pausePlaying(true);
-  writeCard(myCard);*/
+  // read buttons before leaving in order to avoid button event when reentering main loop
+  leftButton.read();
+  middleButton.read();
+  rightButton.read();
 }
 
 bool readCard(nfcTagData *dataIn)
@@ -715,18 +738,12 @@ void findPath(playDataInfo *playData)
   {
     if (!sdin.getline(linebuffer, 50, '\n'))
       break;
+    ++line_number;
     if (strstr(linebuffer, playData->dirname))
     {
-      // read out track number, not required here but for testing purposes
-      // this will be necessary in adding a card
-      //char *pch;
-      //pch = strtok(linebuffer, "\t");
-      //pch = strtok(NULL, "\t");
-      //int trackcnt = pch - '0';
-      //Serial.println(pch);
       break;
     }
-    ++line_number;
+    
   }
   playData->pathLine = line_number;
   sdin.close();
@@ -737,16 +754,19 @@ void getTrackName(playDataInfo *playData)
 {
   sdin.open("/index.txt");
   sdin.seekg(0);
-  uint8_t line_number = playData->pathLine - playData->trackcnt + playData->currentTrack - 1;
-  for (uint8_t i = 0; i < line_number; i++)
+
+  uint8_t line_number = playData->pathLine - playData->trackcnt + playData->currentTrack-1;
+  Serial.print(F("targetline:\t"));
+  Serial.println(line_number,DEC);
+  for (uint8_t i = 1; i < line_number; i++)
   {
     sdin.ignore(50, '\n');
   }
   sdin.getline(playData->fname, 13, '\n');
 
-  strcpy(playData->fullname, playData->dirname);
-  strcat(playData->fullname, "/");
-  strcat(playData->fullname, playData->fname);
+  //strcpy(playData->fullname, playData->dirname);
+  //strcat(playData->fullname, "/");
+  //strcat(playData->fullname, playData->fname);
   sdin.close();
 }
 
@@ -808,32 +828,13 @@ void playFolder(playDataInfo *playData, uint8_t foldernum)
   sdin.close();
 
   playData->pathLine = line_number;
-  Serial.print(F("pathline:\t"));
-  Serial.println(playData->pathLine, DEC);
-
   pch = strtok(linebuffer, "\t");
   strcpy(playData->dirname, pch);
-  Serial.print(F("dirname:\t"));
-  Serial.println(playData->dirname);
-
   pch = strtok(NULL, "\t");
   playData->trackcnt = atoi(pch); //convert trackcount to int
-  Serial.print(F("trackcnount:\t"));
-  Serial.println(playData->trackcnt);
-
-  playData->currentTrack = 0;
-  Serial.print(F("current track:\t"));
-  Serial.println(playData->currentTrack);
-
+  playData->currentTrack = 1;
   getTrackName(playData);
-  Serial.print(F("filename:\t"));
-  Serial.println(playData->fname);
 
-  strcpy(playData->fullname, playData->dirname);
-  strcat(playData->fullname, "/");
-  strcat(playData->fullname, playData->fname);
-  Serial.print(F("fullname:\t"));
-  Serial.println(playData->fullname);
   startPlaying(playData);
   //Serial.println(playData->trackcnt,DEC);
   //Serial.println(playData->dirname);
@@ -845,7 +846,29 @@ void playFolder(playDataInfo *playData, uint8_t foldernum)
 // start playing track
 void startPlaying(playDataInfo *playData)
 {
+  strcpy(playData->fullname, playData->dirname);
+  strcat(playData->fullname, "/");
+  strcat(playData->fullname, playData->fname);
+
   Serial.println(F("Start Playing"));
+
+  Serial.print(F("pathline:\t"));
+  Serial.println(playData->pathLine, DEC);
+
+  Serial.print(F("dirname:\t"));
+  Serial.println(playData->dirname);
+
+  Serial.print(F("trackcnount:\t"));
+  Serial.println(playData->trackcnt);
+
+  Serial.print(F("current track:\t"));
+  Serial.println(playData->currentTrack);
+
+  Serial.print(F("filename:\t"));
+  Serial.println(playData->fname);
+
+  Serial.print(F("fullname:\t"));
+  Serial.println(playData->fullname);
 
   //Serial.println(playData->fullname);
   if (!musicPlayer.startPlayingFile(playData->fullname))
