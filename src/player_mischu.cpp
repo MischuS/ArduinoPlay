@@ -434,26 +434,11 @@ void loop()
 
 int voiceMenu(playDataInfo *playData, int numberOfOptions, bool preview)
 {
-  Serial.println("entering voice menu");
-
-  musicPlayer.stopPlaying();
   int returnValue = 0;
-  //File messageFile;
-  //File messageRoot = SD.open("/VOICE");
-  //strcpy(playData->dirname, "/VOICE");
-
-  //if (startMessage != 0)
-  //{
-  //  messageRoot.rewindDirectory();
-  //  for (int i = 0; i < startMessage; i++)
-  //  {
-  //    messageFile = messageRoot.openNextFile();
-  //  }
-  //  messageFile.getSFN(playData->fname);
-  //  messageRoot.close();
-
+    
+  Serial.println("entering voice menu");
+  musicPlayer.stopPlaying();
   startPlaying(playData);
-  //}
 
   do
   {
@@ -472,13 +457,11 @@ int voiceMenu(playDataInfo *playData, int numberOfOptions, bool preview)
     if (rightButton.wasReleased())
     {
       returnValue += 1;
-
       Serial.print("folder index:\t");
       Serial.println(returnValue, DEC);
       musicPlayer.stopPlaying();
       playFolder(playData, returnValue);
     }
-
     if (leftButton.wasReleased())
     {
       if (returnValue <= 1)
