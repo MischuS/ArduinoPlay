@@ -42,7 +42,7 @@ MischuS
 #define LONG_PRESS 1000
 
 // define limits
-#define MAX_VOLUME 5
+#define MAX_VOLUME 10
 #define MIN_VOLUME 100
 #define VOLUME_STEPTIME 500
 
@@ -64,7 +64,7 @@ struct playDataInfo //
   uint8_t currentTrack; // current track
   char dirname[37];     // buffer to hold current dirname
   char fname[13];       // buffer to hold current file name
-  char fullname[50];    // general buffer used throught the program
+  char buffer[50];      // general buffer used throught the program
 };
 
 // function definition
@@ -193,6 +193,16 @@ void loop()
 
   playDataInfo playData;
   nfcTagData dataIn;
+
+  /*------------------------
+  player status handling
+  ------------------------*/
+  if (!musicPlayer.playingMusic && tagStatus)
+  {
+    // tag is present but no music is playing play next track if possible
+    if (playData.currentTrack < playData.trackcnt)
+      playNext(&playData);
+  }
 
   /*------------------------
   buttons handling
@@ -363,6 +373,9 @@ void loop()
     }
   }
 
+  /*------------------------
+  NFC Tag handling
+  ------------------------*/
   bool newTagStatus = false;
   for (uint8_t i = 0; i < 3; i++) //try to check tag status several times since eventhough tag is present it is not continisouly seen
   {
@@ -391,17 +404,11 @@ void loop()
         Serial.println(F("unknown card"));
         nfcTagData writeData;
         setupCard(&writeData, &playData);
-        /*nfcTagData testdata = {42,             // cookie to identify the nfc tag to belong to the player
-                               "AIR/10000H~1", // Byte1-28 char array to hold the path to the folder
-                               11,             // Byte29 number of tracks in the specific folder
-                               1,              // Byte30 play mode assigne to the nfcTag
-                               1};             // Byte31 track or function for admin nfcTags
-
-        writeCard(&testdata); // write NFC Data*/
       }
       else
       {
         Serial.println(F("known card"));
+
         //tag is known copy data to playData struct
         strcpy(playData.dirname, "/MUSIC/");
         strcat(playData.dirname, dataIn.pname);
@@ -441,7 +448,6 @@ int voiceMenu(playDataInfo *playData, int numberOfOptions, int startMessage, int
   File messageFile;
   File messageRoot = SD.open("/VOICE");
   strcpy(playData->dirname, "/VOICE");
-  //Serial.println(playData->dirname);
 
   if (startMessage != 0)
   {
@@ -470,83 +476,25 @@ int voiceMenu(playDataInfo *playData, int numberOfOptions, int startMessage, int
       delay(1000);
     }
 
-    //if (rightButton.pressedFor(LONG_PRESS))
-    //{
-    //returnValue = min(returnValue + 10, numberOfOptions);
-    //mp3.playMp3FolderTrack(messageOffset + returnValue);
-    //delay(1000);
-    //if (preview) {
-    //  do {
-    //    delay(10);
-    //  } while (isPlaying());
-    //  if (previewFromFolder == 0)
-    //    mp3.playFolderTrack(returnValue, 1);
-    //  else
-    //    mp3.playFolderTrack(previewFromFolder, returnValue);
-    //}
-    //ignorerightButton = true;
-    //}
-    //else
     if (rightButton.wasReleased())
     {
-      musicPlayer.stopPlaying();
       returnValue += 1;
+
       Serial.print("folder index:\t");
       Serial.println(returnValue, DEC);
+      musicPlayer.stopPlaying();
       playFolder(playData, returnValue);
-      //if (!ignorerightButton)
-      //{
-      //returnValue = min(returnValue + 1, numberOfOptions);
-
-      //mp3.playMp3FolderTrack(messageOffset + returnValue);
-      //delay(1000);
-      //if (preview)
-      //{
-      //  do
-      // {
-      //    delay(10);
-      //  } while (isPlaying());
-      //  if (previewFromFolder == 0)
-      //    mp3.playFolderTrack(returnValue, 1);
-      //  else
-      //    mp3.playFolderTrack(previewFromFolder, returnValue);
-      //  }
-      //}
-      //else
-      //ignorerightButton = false;
     }
 
-    /*if (leftButton.pressedFor(LONG_PRESS)) {
-      returnValue = max(returnValue - 10, 1);
-      mp3.playMp3FolderTrack(messageOffset + returnValue);
-      delay(1000);
-      if (preview) {
-        do {
-          delay(10);
-        } while (isPlaying());
-        if (previewFromFolder == 0)
-          mp3.playFolderTrack(returnValue, 1);
-        else
-          mp3.playFolderTrack(previewFromFolder, returnValue);
-      }
-      ignoreleftButton = true;
-    } else if (leftButton.wasReleased()) {
-      if (!ignoreleftButton) {
-        returnValue = max(returnValue - 1, 1);
-        mp3.playMp3FolderTrack(messageOffset + returnValue);
-        delay(1000);
-        if (preview) {
-          do {
-            delay(10);
-          } while (isPlaying());
-          if (previewFromFolder == 0)
-            mp3.playFolderTrack(returnValue, 1);
-          else
-            mp3.playFolderTrack(previewFromFolder, returnValue);
-        }
-      } else
-        ignoreleftButton = false;
-    }*/
+    if (leftButton.wasReleased())
+    {
+      if (returnValue <= 1)
+        returnValue = 1;
+      else
+        returnValue -= 1;
+      musicPlayer.stopPlaying();
+      playFolder(playData, returnValue);
+    }
   } while (true);
 }
 
@@ -584,24 +532,27 @@ void resetCard()
 
 void setupCard(nfcTagData *nfcData, playDataInfo *playData)
 {
-  //musicPlayer.stopPlaying();
-  //SD.chdir("/VOICE/");
   Serial.println(F("configure new card"));
   musicPlayer.stopPlaying();
 
   // find playfolder by voiceMenu
   voiceMenu(playData, 99, 256, 0, true);
-  
+
   // needs if conditions, only if successfull save data
   Serial.println(F("NFC Data:"));
   nfcData->cookie = 42;
   strncpy(nfcData->pname, playData->dirname + 7, 28);
   Serial.println(nfcData->pname);
   nfcData->trackcnt = playData->trackcnt;
+  
+  // Wiedergabemodus abfragen
+  // voiceMenu(6, 310, 310);
+  voiceMenu(playData,6,257,257)
+  //myCard.mode = 1;
   nfcData->mode = 1;
   nfcData->special = 1;
-
-  Serial.print(F("cookie:\t"));
+  
+  /*Serial.print(F("cookie:\t"));
   Serial.println(nfcData->cookie);
   Serial.print(F("folder:\t"));
   Serial.println(nfcData->pname);
@@ -610,17 +561,11 @@ void setupCard(nfcTagData *nfcData, playDataInfo *playData)
   Serial.print(F("playmode:\t"));
   Serial.println(nfcData->mode);
   Serial.print(F("function:\t"));
-  Serial.println(nfcData->special);
-  
+  Serial.println(nfcData->special);*/
   // write data for card
   writeCard(nfcData);
   
-  //myCard.folder = 1;
-
-  // Wiedergabemodus abfragen
-  // for dev: myCard.mode = voiceMenu(6, 310, 310);
-  //myCard.mode = 1;
-
+  
   /*
   // Hörbuchmodus -> Fortschritt im EEPROM auf 1 setzen
   EEPROM.write(myCard.folder,1);
@@ -634,7 +579,7 @@ void setupCard(nfcTagData *nfcData, playDataInfo *playData)
   if (myCard.mode == 6)
     myCard.special = voiceMenu(3, 320, 320);
 ;*/
-  
+
   // read buttons before leaving in order to avoid button event when reentering main loop
   leftButton.read();
   middleButton.read();
@@ -729,21 +674,19 @@ void findPath(playDataInfo *playData)
 {
   uint8_t trackcnt = 0;
   uint8_t line_number = 0;
-  char linebuffer[50]; // for optimization fullname buffer might be reused...
 
   sdin.open("/index.txt"); // open indexfile
   sdin.seekg(0);           // go to file position 0
 
   while (true)
   {
-    if (!sdin.getline(linebuffer, 50, '\n'))
+    if (!sdin.getline(playData->buffer, 50, '\n'))
       break;
     ++line_number;
-    if (strstr(linebuffer, playData->dirname))
+    if (strstr(playData->buffer, playData->dirname))
     {
       break;
     }
-    
   }
   playData->pathLine = line_number;
   sdin.close();
@@ -755,18 +698,14 @@ void getTrackName(playDataInfo *playData)
   sdin.open("/index.txt");
   sdin.seekg(0);
 
-  uint8_t line_number = playData->pathLine - playData->trackcnt + playData->currentTrack-1;
+  uint8_t line_number = playData->pathLine - playData->trackcnt + playData->currentTrack - 1;
   Serial.print(F("targetline:\t"));
-  Serial.println(line_number,DEC);
+  Serial.println(line_number, DEC);
   for (uint8_t i = 1; i < line_number; i++)
   {
     sdin.ignore(50, '\n');
   }
   sdin.getline(playData->fname, 13, '\n');
-
-  //strcpy(playData->fullname, playData->dirname);
-  //strcat(playData->fullname, "/");
-  //strcat(playData->fullname, playData->fname);
   sdin.close();
 }
 
@@ -803,7 +742,6 @@ void playRandom()
 
 void playFolder(playDataInfo *playData, uint8_t foldernum)
 {
-  char linebuffer[50]; // for optimization fullname buffer might be reused...
   char *pch;
   sdin.open("/index.txt");
   sdin.seekg(0);
@@ -812,15 +750,13 @@ void playFolder(playDataInfo *playData, uint8_t foldernum)
 
   while (i <= foldernum)
   {
-    if (!sdin.getline(linebuffer, 50, '\n'))
+    if (!sdin.getline(playData->buffer, 50, '\n'))
     {
       break;
     }
-    //Serial.println(linebuffer);
-    pch = strpbrk(linebuffer, "/"); // locate "/" in order to filter out lines in index file containing the path
+    pch = strpbrk(playData->buffer, "/"); // locate "/" in order to filter out lines in index file containing the path
     if (pch != NULL)
     {
-      //Serial.println("/ found ");
       i = i + 1;
     }
     ++line_number;
@@ -828,7 +764,7 @@ void playFolder(playDataInfo *playData, uint8_t foldernum)
   sdin.close();
 
   playData->pathLine = line_number;
-  pch = strtok(linebuffer, "\t");
+  pch = strtok(playData->buffer, "\t");
   strcpy(playData->dirname, pch);
   pch = strtok(NULL, "\t");
   playData->trackcnt = atoi(pch); //convert trackcount to int
@@ -836,9 +772,6 @@ void playFolder(playDataInfo *playData, uint8_t foldernum)
   getTrackName(playData);
 
   startPlaying(playData);
-  //Serial.println(playData->trackcnt,DEC);
-  //Serial.println(playData->dirname);
-  //Serial.println(playData->trackcnt, DEC);
 
   return;
 }
@@ -846,32 +779,26 @@ void playFolder(playDataInfo *playData, uint8_t foldernum)
 // start playing track
 void startPlaying(playDataInfo *playData)
 {
-  strcpy(playData->fullname, playData->dirname);
-  strcat(playData->fullname, "/");
-  strcat(playData->fullname, playData->fname);
+  strcpy(playData->buffer, playData->dirname);
+  strcat(playData->buffer, "/");
+  strcat(playData->buffer, playData->fname);
 
   Serial.println(F("Start Playing"));
 
-  Serial.print(F("pathline:\t"));
+  /*Serial.print(F("pathline:\t"));
   Serial.println(playData->pathLine, DEC);
-
   Serial.print(F("dirname:\t"));
   Serial.println(playData->dirname);
-
   Serial.print(F("trackcnount:\t"));
   Serial.println(playData->trackcnt);
-
   Serial.print(F("current track:\t"));
   Serial.println(playData->currentTrack);
-
   Serial.print(F("filename:\t"));
   Serial.println(playData->fname);
+  Serial.print(F("filepathname:\t"));
+  Serial.println(playData->buffer);*/
 
-  Serial.print(F("fullname:\t"));
-  Serial.println(playData->fullname);
-
-  //Serial.println(playData->fullname);
-  if (!musicPlayer.startPlayingFile(playData->fullname))
+  if (!musicPlayer.startPlayingFile(playData->buffer))
   {
     Serial.println(F("Failed to start playing"));
   }
