@@ -12,6 +12,7 @@ MischuS
 #include <SdFat.h>
 #include <JC_Button.h>
 #include <sdios.h>
+#include <MD_MAX72xx.h>
 
 #include <MFRC522.h>
 //#include <EEPROM.h>
@@ -46,8 +47,8 @@ MischuS
 #define MIN_VOLUME 100
 #define VOLUME_STEPTIME 500
 
-//custom type definitions
-struct nfcTagData // struct to hold NFC tag data
+    //custom type definitions
+    struct nfcTagData // struct to hold NFC tag data
 {
   uint8_t cookie;   // byte 0 nfc cookie to identify the nfc tag to belong to the player
   char pname[28];   // byte 1-28 char array to hold the path to the folder
