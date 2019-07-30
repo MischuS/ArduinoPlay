@@ -300,6 +300,10 @@ void loop()
         musicPlayer.pausePlaying(false);
       }
     }
+    if (middleButton.wasReleased())
+    {
+
+    }
   }
 
   /*------------------------
