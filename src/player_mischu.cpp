@@ -81,11 +81,11 @@ struct playDataInfo //
 // function definition
 void indexDirectoryToFile(File dir, File *indexFile);
 static void nextTrack(uint16_t track);
-int voiceMenu(playDataInfo *playData, int option);           // voice menu for setting up device
-void resetCard();                                            // resets a card
-int setupCard(nfcTagData *nfcData, playDataInfo *playData);  // first time setup of a card
-bool readCard(nfcTagData *dataIn);                           // reads card content and save it in nfcTagObject
-bool writeCard(nfcTagData *dataOut);                         // writes card content from nfcTagObject
+int voiceMenu(playDataInfo *playData, int option);          // voice menu for setting up device
+void resetCard();                                           // resets a card
+int setupCard(nfcTagData *nfcData, playDataInfo *playData); // first time setup of a card
+bool readCard(nfcTagData *dataIn);                          // reads card content and save it in nfcTagObject
+bool writeCard(nfcTagData *dataOut);                        // writes card content from nfcTagObject
 void findPath(playDataInfo *playData);
 void getTrackName(playDataInfo *playData);
 void playFolder(playDataInfo *playData, uint8_t foldernum);
@@ -302,7 +302,6 @@ void loop()
     }
     if (middleButton.wasReleased())
     {
-
     }
   }
 
@@ -457,21 +456,21 @@ int voiceMenu(playDataInfo *playData, int option)
 
   musicPlayer.stopPlaying();
   switch (option) // TODO: replace by better filenaming and sprintf statement later on!!!!
-    {
-    case 1:
-      if (!musicPlayer.startPlayingFile("/VOICE/0300_N~1.mp3"))
-        Serial.println(F("Failed to start playing Option Text 1"));
-      break;
-    case 2:
-      if (!musicPlayer.startPlayingFile("/VOICE/0310_T~1.mp3"))
-        Serial.println(F("Failed to start playing Option Text 2"));
-      break;
-    case 3:
-      if (!musicPlayer.startPlayingFile("/VOICE/0320_S~1.mp3"))
-        Serial.println(F("Failed to start playing Option Text 3"));
-      break;
-    }
-  
+  {
+  case 1:
+    if (!musicPlayer.startPlayingFile("/VOICE/0300_N~1.mp3"))
+      Serial.println(F("Failed to start playing Option Text 1"));
+    break;
+  case 2:
+    if (!musicPlayer.startPlayingFile("/VOICE/0310_T~1.mp3"))
+      Serial.println(F("Failed to start playing Option Text 2"));
+    break;
+  case 3:
+    if (!musicPlayer.startPlayingFile("/VOICE/0320_S~1.mp3"))
+      Serial.println(F("Failed to start playing Option Text 3"));
+    break;
+  }
+
   do
   {
     middleButton.read();
@@ -610,9 +609,7 @@ int setupCard(nfcTagData *nfcData, playDataInfo *playData)
   if (result > 0) // copy selected folder to nfcData struct
   {
     strncpy(nfcData->pname, playData->dirname + 7, 28);
-
     nfcData->trackcnt = playData->trackcnt;
-
     musicPlayer.stopPlaying();
     if (!musicPlayer.startPlayingFile("/VOICE/0310_T~1.mp3"))
     {
@@ -640,12 +637,18 @@ int setupCard(nfcTagData *nfcData, playDataInfo *playData)
   result = voiceMenu(playData, 2);
   if (result > 0)
     nfcData->mode = result;
-  /*if (result == 4)
-    {// if play mode is "single track" (i.e. 4) track to be played has to be selected
-      voiceMenu(playData, 3);
+  if (result == 4)
+  { // if play mode is "single track" (i.e. 4) track to be played has to be selected
+    result = voiceMenu(playData, 3);
+    if (result > 0)
+    {
+      nfcData->special = result;
+      else
+      {
+        return returnValue
+      }
     }
-  else*/
-  nfcData->mode = 1;
+  }
   nfcData->special = 1;
   nfcData->cookie = 42;
 
