@@ -13,17 +13,30 @@ MischuS
 #include <JC_Button.h>
 #include <sdios.h>
 #include <MD_MAX72xx.h>
-
 #include <MFRC522.h>
+//#include <nfc.h>
 //#include <EEPROM.h>
 
-//#define HARDWARE_TYPE MD_MAX72XX::PAROLA_HW
-//#define MAX_DEVICES 4
+#include "user_fonts.h"
 
-//#define CLK_PIN 52  // or SCK
-//#define DATA_PIN 11 // or MOSI
-//#define CS_PIN 2    // or SS
-//MD_MAX72XX mx = MD_MAX72XX(HARDWARE_TYPE, CS_PIN, MAX_DEVICES);
+#define HARDWARE_TYPE MD_MAX72XX::FC16_HW
+#define MAX_DEVICES1 1
+#define MAX_DEVICES2 3
+#define CLK_PIN 26  
+#define DATA_PIN 22 
+#define CS_PIN1 24
+#define CS_PIN2 28
+
+// Font parameters
+#define CHAR_SPACING 1 // pixels between characters
+MD_MAX72XX::fontType_t *pFontNormal = fontSmallNormal; // normal font
+MD_MAX72XX::fontType_t *pFontCondensed = fontSmallCondensed; // condensed font
+MD_MAX72XX::fontType_t *pFontWide = fontSmallWide; // wide font
+
+// Global message buffers shared by Serial and Scrolling functions
+#define BUF_SIZE 75
+char message[BUF_SIZE] = " ";
+bool newMessageAvailable = true;
 
 // define the pins used for SPI Communication
 #define CLK 52       // SPI Clock on MEGA / 13 on UNO
@@ -52,8 +65,8 @@ MischuS
 // define behaviour of buttons
 #define LONG_PRESS 1000
 
-// define limits
-#define MAX_VOLUME 20
+// define volume behavior and limits
+#define MAX_VOLUME 30
 #define MIN_VOLUME 100
 #define VOLUME_STEPTIME 200
 
@@ -92,6 +105,7 @@ void startPlaying(playDataInfo *playData);   // start playing selected track
 void selectNext(playDataInfo *playData);     // selects next track
 void selectPrevious(playDataInfo *playData); // selects previous track
 void printerror(int errorcode, int source);
+void printText(uint8_t modStart, uint8_t modEnd, char *pMsg);
 
 // helper function for development
 void dump_byte_array(byte *dumpbuffer, byte dumpbufferSize); // dump a byte aray as hex to the Serial port
@@ -102,6 +116,10 @@ Adafruit_VS1053_FilePlayer musicPlayer = Adafruit_VS1053_FilePlayer(SHIELD_RESET
 
 // create instance of card reader
 MFRC522 mfrc522(SS_PIN, RST_PIN); // create instance of MFRC522 object
+
+// create display instance
+MD_MAX72XX mx1 = MD_MAX72XX(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN1, MAX_DEVICES1);
+MD_MAX72XX mx2 = MD_MAX72XX(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN2, MAX_DEVICES2);
 
 // objects for SD handling
 ifstream sdin; // input stream for searching in indexfile
@@ -124,7 +142,7 @@ uint8_t pageAddr = 0x06;    // start using nfc tag starting from page 6
                             // ultraligth memory has 16 pages, 4 bytes per page
                             // pages 0 to 4 are for special functions
 
-/* SETUP Everything */
+/* SETUP */
 void setup()
 {
   /*------------------------
@@ -132,8 +150,7 @@ void setup()
   ------------------------*/
 
   Serial.begin(BAUDRATE); // init serial communication
-  while (!Serial)
-    ; // wait until serial has started
+  while (!Serial); // wait until serial has started
   Serial.println(F("Startup"));
   SPI.begin(); // start SPI communication
 
@@ -188,11 +205,30 @@ void setup()
   pinMode(13, INPUT);
 
   /*------------------------
+  setup display
+  ------------------------*/
+  mx1.begin();
+  mx2.begin();
+  mx1.control(MD_MAX72XX::INTENSITY,MAX_INTENSITY/20);
+  mx1.setFont(pFontNormal);
+  mx1.transform(MD_MAX72XX::TFLR);
+  printText(0, MAX_DEVICES1 - 1, message);
+  newMessageAvailable = false;
+  /*for (uint8_t i = 0; i < ROW_SIZE; i++)
+  {
+    mx1.setPoint(i, i, true);
+    mx1.setPoint(0, i, true);
+    mx1.setPoint(i, 0, true);
+    delay(100);
+  }*/
+  Serial.println(F("Displayed Message"));
+
+  /*------------------------
   startup program
   ------------------------*/
   randomSeed(analogRead(A5)); // initialize random number geneartor
   
-  // index SD card 
+  // index SD card if left, middle and right button are pressed during startup
   if (leftButton.read() && middleButton.read() && rightButton.read())
   {
     
@@ -234,7 +270,6 @@ void loop()
   init variables
   ------------------------*/
   static bool middleButtonLongPressDetect = false; // state variable allowing to ignore release after long press
-
   playDataInfo playData;
   nfcTagData dataIn;
 
@@ -248,6 +283,11 @@ void loop()
       // tag is present but no music is playing play next track if possible
       selectNext(&playData);
       startPlaying(&playData);
+    }
+    else
+    {
+      sprintf(message, " ");
+      printText(0, MAX_DEVICES1 - 1, message);
     }
   }
 
@@ -325,11 +365,15 @@ void loop()
       Serial.println(F("M short"));
       if (!musicPlayer.paused())
       {
+        sprintf(message,"=");
+        printText(0, MAX_DEVICES1 - 1, message);
         Serial.println(F("pause"));
         musicPlayer.pausePlaying(true);
       }
       else
       {
+        sprintf(message, "%d", playData.currentTrack);
+        printText(0, MAX_DEVICES1 - 1, message);
         Serial.println(F("resume"));
         musicPlayer.pausePlaying(false);
       }
@@ -406,7 +450,7 @@ void loop()
           playData.trackList[i] = 0;
         switch (playData.mode)
         {
-        case 1: //random -> shuffle n elements trackList
+        case 3: //random -> shuffle n elements trackList
           Serial.println(F("random"));
           for (size_t i = 0; i < playData.trackCnt; i++) // generate trackList 1..trackCnt
             playData.trackList[i] = i + 1;
@@ -423,7 +467,8 @@ void loop()
           playData.trackList[0] = dataIn.special;
           break;
         default:
-          Serial.println(F("other Mode"));
+          Serial.print(F("other Mode: "));
+          Serial.println(playData.mode);
           for (size_t i = 0; i < playData.trackCnt; i++)
             playData.trackList[i] = i + 1;
           break;
@@ -440,7 +485,11 @@ void loop()
     {
       Serial.println(F("tag removed"));
       if (musicPlayer.playingMusic)
+      {  
         musicPlayer.stopPlaying();
+        sprintf(message, " ");
+        printText(0, MAX_DEVICES1, message);
+      }
     }
   }
 }
@@ -703,6 +752,8 @@ bool readCard(nfcTagData *dataIn)
   }
 
   dataIn->cookie = readBuffer[0];
+  Serial.print(F("Cookie: "));
+  Serial.println(dataIn->cookie);
   for (uint8_t i = 0; i < 15; i++)
   {
     dataIn->pname[i] = (char)readBuffer[i + 1];
@@ -892,12 +943,11 @@ void startPlaying(playDataInfo *playData)
 {
   char fBuffer[13];
   char buffer[50];
-  
- 
-  
+
   // copy data from play dataStruct to play buffer
   strcpy(buffer, playData->dirName);
   strcat(buffer, "/");
+  
   //get filename
   if (musicPlayer.playingMusic)
     musicPlayer.stopPlaying(); //stop playing first, since SD library is unable to access two files at the time
@@ -925,6 +975,24 @@ void startPlaying(playDataInfo *playData)
   Serial.println();
   Serial.print(F("current track pos:     "));
   Serial.println(trackpos);
+  sprintf(message, "%d", trackpos);
+  if (trackpos<10)
+  {    
+      mx1.setFont(pFontWide);
+      printText(0, MAX_DEVICES1 - 1, message);
+  }
+  else if (trackpos>=10 && trackpos <20)
+  {
+    mx1.setFont(pFontNormal);
+    printText(0, MAX_DEVICES1 - 1, message);
+  }
+  else
+  {
+    mx1.setFont(pFontCondensed);
+    printText(0, MAX_DEVICES1 - 1, message);
+  }
+  
+  
   Serial.print(F("selected track number: "));
   Serial.println(tracknum);
   Serial.print(F("Trackname:             "));
@@ -935,6 +1003,72 @@ void startPlaying(playDataInfo *playData)
   // start playing
   if (!musicPlayer.startPlayingFile(buffer))
     printerror(201,0);
+}
+
+/*---------------------------------
+display test text
+---------------------------------*/
+void printText(uint8_t modStart, uint8_t modEnd, char *pMsg)
+// Print the text string to the LED matrix modules specified.
+// Message area is padded with blank columns after printing.
+{
+  uint8_t state = 0;
+  uint8_t curLen;
+  uint16_t showLen;
+  uint8_t cBuf[8];
+  int16_t col = ((modEnd + 1) * COL_SIZE) - 1;
+
+  mx1.control(modStart, modEnd, MD_MAX72XX::UPDATE, MD_MAX72XX::OFF);
+
+  do // finite state machine to print the characters in the space available
+  {
+    switch (state)
+    {
+    case 0: // Load the next character from the font table
+      // if we reached end of message, reset the message pointer
+      if (*pMsg == '\0')
+      {
+        showLen = col - (modEnd * COL_SIZE); // padding characters
+        state = 2;
+        break;
+      }
+
+      // retrieve the next character form the font file
+      showLen = mx1.getChar(*pMsg++, sizeof(cBuf) / sizeof(cBuf[0]), cBuf);
+      curLen = 0;
+      state++;
+      // !! deliberately fall through to next state to start displaying
+
+    case 1: // display the next part of the character
+      mx1.setColumn(col--, cBuf[curLen++]);
+
+      // done with font character, now display the space between chars
+      if (curLen == showLen)
+      {
+        showLen = CHAR_SPACING;
+        state = 2;
+      }
+      break;
+
+    case 2: // initialize state for displaying empty columns
+      curLen = 0;
+      state++;
+      // fall through
+
+    case 3: // display inter-character spacing or end of message padding (blank columns)
+      mx1.setColumn(col--, 0);
+      curLen++;
+      if (curLen == showLen)
+        state = 0;
+      break;
+
+    default:
+      col = -1; // this definitely ends the do loop
+    }
+  } while (col >= (modStart * COL_SIZE));
+  mx1.transform(MD_MAX72XX::TSR);
+  mx1.transform(MD_MAX72XX::TRC);
+  mx1.control(modStart, modEnd, MD_MAX72XX::UPDATE, MD_MAX72XX::ON);
 }
 
 /*---------------------------------
@@ -1010,6 +1144,9 @@ void indexDirectoryToFile(File dir, File *indexFile)
   }
 }
 
+/*---------------------------------
+routine to print errors
+---------------------------------*/
 void printerror(int errorcode, int source)
 {
   switch (errorcode)
@@ -1022,3 +1159,4 @@ void printerror(int errorcode, int source)
       break;
   }
 }
+
