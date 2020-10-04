@@ -5,6 +5,9 @@ MischuS
 
 ****************************************************/
 
+//TODO: Play Buffer
+//TODO: Relative Lautstärke auf TAG
+
 // include SPI, MP3, Buttons and SDfat libraries
 #include <Arduino.h>
 #include <SPI.h>
@@ -14,10 +17,9 @@ MischuS
 #include <sdios.h>
 #include <MD_MAX72xx.h>
 #include <MFRC522.h>
-//#include <nfc.h>
 //#include <EEPROM.h>
 
-#include "user_fonts.h"
+#include "user_fonts.h" // add user defined fonts for 
 
 #define HARDWARE_TYPE MD_MAX72XX::FC16_HW
 #define MAX_DEVICES1 1
