@@ -116,8 +116,8 @@ void findPath(playDataInfo *playData);
 void playFolder(playDataInfo *playData, uint8_t foldernum);
 void playMenuOption(playDataInfo *playData, int option);
 void startPlaying(playDataInfo *playData, playInfo playInfoList[]);   // start playing selected track
-void selectNext(playDataInfo *playData);     // selects next track
-void selectPrevious(playDataInfo *playData); // selects previous track
+void selectNext(playDataInfo *playData, playInfo playInfoList[]);     // selects next track
+void selectPrevious(playDataInfo *playData, playInfo playInfoList[]); // selects previous track
 void printerror(int errorcode, int source);
 void printText(uint8_t modStart, uint8_t modEnd, char *pMsg);
 bool handleRecentList(uint32_t currentUid, playInfo  playInfoList[]);
@@ -322,14 +322,14 @@ void loop()
   if (leftButton.wasReleased() && tagStatus) // short press left button goes back 1 track
   {
     Serial.println(F("previous"));
-    selectPrevious(&playData);
+    selectPrevious(&playData, playInfoList);
     startPlaying(&playData, playInfoList);
   }
   // right button handling
   if (rightButton.wasReleased() && tagStatus) // short press of right button is next track
   {
     Serial.println(F("next"));
-    selectNext(&playData);
+    selectNext(&playData, playInfoList);
     playInfoList[0].currentTrack = playData.currentTrack;
     startPlaying(&playData, playInfoList);
   }
@@ -384,7 +384,7 @@ void loop()
     {
       // tag is present but no music is playing play next track if possible
       Serial.println(F("next"));
-      selectNext(&playData);
+      selectNext(&playData, playInfoList);
       playInfoList[0].currentTrack = playData.currentTrack;
 
       startPlaying(&playData, playInfoList);
@@ -551,6 +551,8 @@ void loop()
       if (musicPlayer.playingMusic || musicPlayer.paused())
       {
         playInfoList[0].playPos = musicPlayer.stopPlaying();
+        playInfoList[0].currentTrack = playData.currentTrack;
+        printPlayInfoList(playInfoList);
         sprintf(message, " ");
         printText(0, MAX_DEVICES1, message);
       }
@@ -626,12 +628,12 @@ int voiceMenu(playDataInfo *playData, int option)
       // browse within a folder by left/right buttons
       if (rightButton.wasPressed())
       {
-        selectNext(playData);
+        selectNext(playData, playInfoList);
         startPlaying(playData, playInfoList);
       }
       if (leftButton.wasPressed())
       {
-        selectPrevious(playData);
+        selectPrevious(playData, playInfoList);
         startPlaying(playData, playInfoList);
       }
       break;
@@ -665,7 +667,7 @@ int voiceMenu(playDataInfo *playData, int option)
         }
         else
         {
-          selectNext(playData);
+          selectNext(playData, playInfoList);
           startPlaying(playData, playInfoList);
           returnValue = playData->currentTrack;
           Serial.println(returnValue);
@@ -680,7 +682,7 @@ int voiceMenu(playDataInfo *playData, int option)
         }
         else
         {
-          selectPrevious(playData);
+          selectPrevious(playData, playInfoList);
           startPlaying(playData, playInfoList);
           returnValue = playData->currentTrack;
           Serial.println(returnValue);
@@ -893,9 +895,10 @@ void findPath(playDataInfo *playData)
 }
 
 // select next track
-void selectNext(playDataInfo *playData)
+void selectNext(playDataInfo *playData, playInfo playInfoList[])
 {
   printPlayData(playData);
+  playInfoList[0].playPos = 0;
   playData->currentTrack = playData->currentTrack + 1;
   if (playData->currentTrack > playData->trackCnt)
   {
@@ -905,8 +908,9 @@ void selectNext(playDataInfo *playData)
 }
 
 // play previous track
-void selectPrevious(playDataInfo *playData)
+void selectPrevious(playDataInfo *playData, playInfo playInfoList[])
 {
+  playInfoList[0].playPos = 0;
   playData->currentTrack = playData->currentTrack - 1;
   if (playData->currentTrack < 1)
   {
