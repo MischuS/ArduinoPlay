@@ -283,6 +283,42 @@ void loop()
   playInfo playInfoList[3]; // FIFO of recent holds 3 entries TODO replace by cpp queue
 
   /*------------------------
+  player status handling
+  ------------------------*/
+  if (!musicPlayer.playingMusic && tagStatus && !musicPlayer.paused())
+  {
+    if (playData.currentTrack < playData.trackCnt)
+    {
+      // tag is present but no music is playing play next track if possible
+      Serial.println(F("select next"));
+      printPlayData(&playData);
+      printPlayInfoList(playInfoList);
+
+      selectNext(&playData, playInfoList);
+      playInfoList[0].currentTrack = playData.currentTrack;
+
+      Serial.println(F("next selected"));
+      printPlayData(&playData);
+      printPlayInfoList(playInfoList);
+
+      startPlaying(&playData, playInfoList);
+
+      Serial.println(F("After play start"));
+      printPlayData(&playData);
+      printPlayInfoList(playInfoList);
+    }
+    else
+    {
+      // tag is present but music playing ended
+
+      // display nothing on LED display
+      sprintf(message, " ");
+      playInfoList[0].uid = 0;
+      printText(0, MAX_DEVICES1 - 1, message);
+    }
+  }
+
+  /*------------------------
   buttons handling
   ------------------------*/
   // read out all button states
@@ -376,31 +412,6 @@ void loop()
   }
 
   /*------------------------
-  player status handling
-  ------------------------*/
-  if (!musicPlayer.playingMusic && tagStatus && !musicPlayer.paused())
-  {
-    if (playData.currentTrack < playData.trackCnt)
-    {
-      // tag is present but no music is playing play next track if possible
-      Serial.println(F("next"));
-      selectNext(&playData, playInfoList);
-      playInfoList[0].currentTrack = playData.currentTrack;
-
-      startPlaying(&playData, playInfoList);
-    }
-    else
-    {
-      // tag is present but music playing ended
-
-      // display nothing on LED display
-      sprintf(message, " ");
-      playInfoList[0].uid = 0;
-      printText(0, MAX_DEVICES1 - 1, message);
-    }
-  }
-
-  /*------------------------
   serial IF handling
   ------------------------*/
   
@@ -411,10 +422,9 @@ void loop()
     // print debug information when received a d on console
     if (c == 'd')
     {
-      // print current trackList for debug purposes
-      for (size_t i = 0; i < playData.trackCnt; i++)
-        Serial.println(playData.trackList[i]);
-      Serial.println(playData.currentTrack);
+      Serial.println("current status:");
+      printPlayData(&playData);
+      printPlayInfoList(playInfoList);
     }
   }
 
@@ -534,6 +544,7 @@ void loop()
             playData.trackList[i] = playInfoList[0].trackList[i];
           playData.currentTrack = playInfoList[0].currentTrack;
         }
+        Serial.println("Data Loaded:");
         printPlayInfoList(playInfoList);
         printPlayData(&playData);
         findPath(&playData);
@@ -897,14 +908,12 @@ void findPath(playDataInfo *playData)
 // select next track
 void selectNext(playDataInfo *playData, playInfo playInfoList[])
 {
-  printPlayData(playData);
   playInfoList[0].playPos = 0;
   playData->currentTrack = playData->currentTrack + 1;
   if (playData->currentTrack > playData->trackCnt)
   {
     playData->currentTrack = playData->trackCnt;
   }
-  printPlayData(playData);
 }
 
 // play previous track
@@ -1053,7 +1062,6 @@ void startPlaying(playDataInfo *playData, playInfo playInfoList[])
     if (!musicPlayer.startPlayingFile(buffer)) // start playing from file start
       printerror(201,0);
   }
-  printPlayData(playData);
 }
 
 /*---------------------------------
