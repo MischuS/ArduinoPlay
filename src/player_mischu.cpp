@@ -84,24 +84,24 @@ struct nfcTagData // struct to hold NFC tag data
 
 struct playDataInfo // struct with all infos regarding the current playlist
 {
-  uint8_t mode;          // play mode
-  uint8_t pathLine;      // line number of the current play path in the index file
-  uint8_t trackCnt;      // track count of
-  uint8_t currentTrack;  // current track
-  char dirName[37];      // buffer to hold current dirName
-  uint8_t trackList[32]; // list of the tracks with their order to play
+  uint8_t mode = 1;            // play mode
+  uint16_t pathLine = 0;       // line number of the current play path in the index file
+  uint8_t trackCnt = 0;        // track count of
+  uint8_t currentTrack = 1;    // current track
+  char dirName[37] ={0};       // buffer to hold current dirName
+  uint8_t trackList[32] = {0}; // list of the tracks with their order to play
 };
 
 struct playInfo // struct with all infos regarding the current tag and its status
 {
-  uint32_t uid;           // first four bytes of the tags uid
-  uint8_t  pathLine;      // line number of the current play path in the index file
-  char     dirName[37];   // buffer to hold current dirName
-  uint8_t  trackCnt;      // track count of
-  uint8_t  trackList[32]; // trackList
-  uint8_t  mode;          // play mode
-  uint8_t  currentTrack;  // current track
-  uint32_t playPos;       // last file position
+  uint32_t uid = 0;             // first four bytes of the tags uid
+  uint16_t pathLine = 0;        // line number of the current play path in the index file
+  char     dirName[37] = {0};   // buffer to hold current dirName
+  uint8_t  trackCnt = 0;        // track count of
+  uint8_t  trackList[32] = {0}; // trackList
+  uint8_t  mode = 1;            // play mode
+  uint8_t  currentTrack = 1;    // current track
+  uint32_t playPos = 1;           // last file position
 };
 
 // function definition
@@ -157,6 +157,8 @@ MFRC522::StatusCode status; // status code of MFRC522 operations
 uint8_t pageAddr = 0x06;    // start using nfc tag starting from page 6
                             // ultraligth memory has 16 pages, 4 bytes per page
                             // pages 0 to 4 are for special functions
+
+playInfo playInfoList[3];  // FIFO of recent holds 3 entries TODO replace by cpp queue
 
 /* SETUP */
 void setup()
@@ -265,6 +267,20 @@ void setup()
     Serial.println(F(" ok"));
     root.close();
   }
+/*
+  // init play info structure array
+  for (uint8_t i = 0; i < 3; i++)
+  {
+    playInfoList[i].uid = 0;
+    playInfoList[i].pathLine = 0;
+    strcpy(playInfoList[i].dirName,"");
+    playInfoList[i].trackCnt = 0;
+    playInfoList[i].trackList = {0};
+    playInfoList[i].mode = 0;
+    playInfoList[i].currentTrack = 1;
+    playInfoList[i].playPos = 0;
+  }*/
+
   Serial.println(F("start main loop"));
 }
 
@@ -280,8 +296,7 @@ void loop()
   static bool middleButtonLongPressDetect = false; // state variable allowing to ignore release after long press
   playDataInfo playData;
   nfcTagData dataIn;
-  playInfo playInfoList[3]; // FIFO of recent holds 3 entries TODO replace by cpp queue
-
+  
   /*------------------------
   player status handling
   ------------------------*/
@@ -365,6 +380,7 @@ void loop()
   if (rightButton.wasReleased() && tagStatus) // short press of right button is next track
   {
     Serial.println(F("next"));
+    //TODO: the error occures here
     selectNext(&playData, playInfoList);
     playInfoList[0].currentTrack = playData.currentTrack;
     startPlaying(&playData, playInfoList);
@@ -885,7 +901,7 @@ track handling routines MOVE to extra file later on
 // find line in index file for given path (from NFC Tag)
 void findPath(playDataInfo *playData)
 {
-  uint8_t line_number = 0;
+  uint16_t line_number = 0;
   char buffer[37];
 
   sdin.open("/index.txt"); // open indexfile
@@ -908,7 +924,10 @@ void findPath(playDataInfo *playData)
 // select next track
 void selectNext(playDataInfo *playData, playInfo playInfoList[])
 {
+  // reset playPos to 0 in order to restart at the beginning
   playInfoList[0].playPos = 0;
+  
+  // add 1 to current track
   playData->currentTrack = playData->currentTrack + 1;
   if (playData->currentTrack > playData->trackCnt)
   {
@@ -943,7 +962,7 @@ void playFolder(playDataInfo *playData, uint8_t foldernum)
   
   sdin.seekg(0);
   uint8_t i = 1;
-  uint8_t line_number = 0;
+  uint16_t line_number = 0;
   char buffer[50];
 
   while (i <= foldernum)
@@ -1023,9 +1042,9 @@ void startPlaying(playDataInfo *playData, playInfo playInfoList[])
 
   uint8_t trackpos = playData->currentTrack;
   uint8_t tracknum = playData->trackList[trackpos - 1];
-  uint8_t line_number = playData->pathLine - playData->trackCnt + tracknum - 1; //calculate linenumber to lookup
+  uint16_t line_number = playData->pathLine - playData->trackCnt + tracknum - 1; //calculate linenumber to lookup
   
-  for (uint8_t i = 1; i < line_number; i++) //go to corresponding line
+  for (uint16_t i = 1; i < line_number; i++) //go to corresponding line
   {
     sdin.ignore(50, '\n');
   }
