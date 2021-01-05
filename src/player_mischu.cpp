@@ -68,7 +68,7 @@ bool newMessageAvailable = true;
 #define LONG_PRESS 1000
 
 // define volume behavior and limits
-#define MAX_VOLUME 30
+#define MAX_VOLUME 25
 #define MIN_VOLUME 100
 #define VOLUME_STEPTIME 200
 
@@ -85,7 +85,7 @@ struct nfcTagData // struct to hold NFC tag data
 struct playDataInfo //
 {
   uint8_t mode;          // play mode
-  uint8_t pathLine;      // line number of the current play path in the index file
+  uint16_t pathLine;      // line number of the current play path in the index file
   uint8_t trackCnt;      // track count of
   uint8_t currentTrack;  // current track
   char dirName[37];      // buffer to hold current dirName
@@ -823,7 +823,7 @@ track handling routines MOVE to extra file later on
 // find line in index file for given path (from NFC Tag)
 void findPath(playDataInfo *playData)
 {
-  uint8_t line_number = 0;
+  uint16_t line_number = 0;
   char buffer[37];
 
   sdin.open("/index.txt"); // open indexfile
@@ -878,7 +878,7 @@ void playFolder(playDataInfo *playData, uint8_t foldernum)
   
   sdin.seekg(0);
   uint8_t i = 1;
-  uint8_t line_number = 0;
+  uint16_t line_number = 0;
   char buffer[50];
 
   while (i <= foldernum)
@@ -958,9 +958,9 @@ void startPlaying(playDataInfo *playData)
 
   uint8_t trackpos = playData->currentTrack;
   uint8_t tracknum = playData->trackList[trackpos - 1];
-  uint8_t line_number = playData->pathLine - playData->trackCnt + tracknum - 1; //calculate linenumber to lookup
+  uint16_t line_number = playData->pathLine - playData->trackCnt + tracknum - 1; //calculate linenumber to lookup
   
-  for (uint8_t i = 1; i < line_number; i++) //go to corresponding line
+  for (uint16_t i = 1; i < line_number; i++) //go to corresponding line
   {
     sdin.ignore(50, '\n');
   }
