@@ -149,8 +149,10 @@ Button rightButton(redButton);
 Button downButton(yellowButton);
 
 // global variables
-uint8_t volume = 60;    // settings of amplifier
-bool tagStatus = false; // tagStatus=true, tag is present, tagStatus=false no tag present
+uint8_t volume = 60;        // settings of amplifier
+bool tagStatus = false;     // tagStatus=true, tag is present, tagStatus=false no tag present
+playInfo playInfoList[3];   // FIFO of recent holds 3 entries TODO replace by cpp queue
+playDataInfo playData;
 
 // NFC management
 MFRC522::StatusCode status; // status code of MFRC522 operations
@@ -158,7 +160,6 @@ uint8_t pageAddr = 0x06;    // start using nfc tag starting from page 6
                             // ultraligth memory has 16 pages, 4 bytes per page
                             // pages 0 to 4 are for special functions
 
-playInfo playInfoList[3];  // FIFO of recent holds 3 entries TODO replace by cpp queue
 
 /* SETUP */
 void setup()
@@ -267,20 +268,6 @@ void setup()
     Serial.println(F(" ok"));
     root.close();
   }
-/*
-  // init play info structure array
-  for (uint8_t i = 0; i < 3; i++)
-  {
-    playInfoList[i].uid = 0;
-    playInfoList[i].pathLine = 0;
-    strcpy(playInfoList[i].dirName,"");
-    playInfoList[i].trackCnt = 0;
-    playInfoList[i].trackList = {0};
-    playInfoList[i].mode = 0;
-    playInfoList[i].currentTrack = 1;
-    playInfoList[i].playPos = 0;
-  }*/
-
   Serial.println(F("start main loop"));
 }
 
@@ -294,7 +281,6 @@ void loop()
   init variables
   ------------------------*/
   static bool middleButtonLongPressDetect = false; // state variable allowing to ignore release after long press
-  playDataInfo playData;
   nfcTagData dataIn;
   
   /*------------------------
@@ -381,7 +367,16 @@ void loop()
   {
     Serial.println(F("next"));
     //TODO: the error occures here
+    Serial.println(F("before selectNext:"));
+    printPlayInfoList(playInfoList);
+    printPlayData(&playData);
+
     selectNext(&playData, playInfoList);
+    
+    Serial.println(F("after selectNext:"));
+    printPlayInfoList(playInfoList);
+    //printPlayData(&playData);
+
     playInfoList[0].currentTrack = playData.currentTrack;
     startPlaying(&playData, playInfoList);
   }
