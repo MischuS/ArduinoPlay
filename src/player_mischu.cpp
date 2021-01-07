@@ -20,15 +20,16 @@ MischuS
 #include "user_fonts.h" // add user defined fonts for LED Matrix
 
 // Definitions for LED Matrix
-#define HARDWARE_TYPE MD_MAX72XX::FC16_HW
+#define HARDWARE_TYPE1 MD_MAX72XX::FC16_HW
+#define HARDWARE_TYPE2 MD_MAX72XX::FC16_HW
 #define MAX_DEVICES1 1
-#define MAX_DEVICES2 3
+#define MAX_DEVICES2 4
 #define CHAR_SPACING 1 // pixels between characters
 MD_MAX72XX::fontType_t *pFontNormal = fontSmallNormal; // normal font
 MD_MAX72XX::fontType_t *pFontCondensed = fontSmallCondensed; // condensed font
 MD_MAX72XX::fontType_t *pFontWide = fontSmallWide; // wide font
-#define CLK_PIN 26  
-#define DATA_PIN 22 
+#define CLK_PIN 26 
+#define DATA_PIN 22
 #define CS_PIN1 24
 #define CS_PIN2 28
 
@@ -38,25 +39,25 @@ char message[BUF_SIZE] = " ";
 bool newMessageAvailable = true;
 
 // define the pins used for SPI Communication
-#define CLK 52       // SPI Clock on MEGA / 13 on UNO
-#define MISO 50      // SPI master input data MEGA /12 on UNO
-#define MOSI 51      // SPI master output data MEGA /11 on UNO
-#define SHIELD_CS 7  // VS1053 chip select pin 
+#define CLK        52// SPI Clock on MEGA / 13 on UNO
+#define MISO       50// SPI master input data MEGA /12 on UNO
+#define MOSI       51// SPI master output data MEGA /11 on UNO
+#define SHIELD_CS  7 // VS1053 chip select pin 
 #define SHIELD_DCS 6 // VS1053 Data/command select pin (output)
-#define DREQ 3       // VS1053 Data request
-#define CARDCS 4     // SD chip select pin
-#define RST_PIN 9    // MFRC522 reset pin
-#define SS_PIN 10    // MFRC522 chip select pin
+#define DREQ       3 // VS1053 Data request
+#define CARDCS     4 // SD chip select pin
+#define RST_PIN    9 // MFRC522 reset pin
+#define SS_PIN     10// MFRC522 chip select pin
 
 // define reset pin
 #define SHIELD_RESET -1 // VS1053 reset pin (unused!)
 
 // define button PINs
 #define yellowButton A5
-#define blueButton A2
-#define greenButton A3
-#define redButton A4
-#define whiteButton A1
+#define blueButton   A2
+#define greenButton  A3
+#define redButton    A4
+#define whiteButton  A1
 
 // define empty input for random seed
 #define randSource A15
@@ -68,9 +69,11 @@ bool newMessageAvailable = true;
 #define LONG_PRESS 1000
 
 // define volume behavior and limits
-#define MAX_VOLUME 25
-#define MIN_VOLUME 100
-#define VOLUME_STEPTIME 200
+#define VOLUME_MAX 25
+#define VOLUME_MIN 97
+#define VOLUME_INIT 58
+#define VOLUME_STEP 3
+#define VOLUME_STEPTIME 150
 
 //custom type definitions
 struct nfcTagData // struct to hold NFC tag data
@@ -134,8 +137,8 @@ Adafruit_VS1053_FilePlayer musicPlayer = Adafruit_VS1053_FilePlayer(SHIELD_RESET
 MFRC522 mfrc522(SS_PIN, RST_PIN); // create instance of MFRC522 object
 
 // create display instance
-MD_MAX72XX mx1 = MD_MAX72XX(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN1, MAX_DEVICES1);
-MD_MAX72XX mx2 = MD_MAX72XX(HARDWARE_TYPE, DATA_PIN, CLK_PIN, CS_PIN2, MAX_DEVICES2);
+MD_MAX72XX mx1 = MD_MAX72XX(HARDWARE_TYPE1, DATA_PIN, CLK_PIN, CS_PIN1, MAX_DEVICES1);
+MD_MAX72XX mx2 = MD_MAX72XX(HARDWARE_TYPE2, DATA_PIN, CLK_PIN, CS_PIN2, MAX_DEVICES2);
 
 // objects for SD handling
 ifstream sdin; // input stream for searching in indexfile
@@ -149,9 +152,9 @@ Button rightButton(redButton);
 Button downButton(yellowButton);
 
 // global variables
-uint8_t volume = 60;        // settings of amplifier
-bool tagStatus = false;     // tagStatus=true, tag is present, tagStatus=false no tag present
-playInfo playInfoList[3];   // FIFO of recent holds 3 entries TODO replace by cpp queue
+uint8_t volume = VOLUME_INIT; // settings of amplifier
+bool tagStatus = false;          // tagStatus=true, tag is present, tagStatus=false no tag present
+playInfo playInfoList[3];        // FIFO of recent holds 3 entries TODO replace by cpp queue
 playDataInfo playData;
 
 // NFC management
@@ -211,11 +214,11 @@ void setup()
   upButton.begin();
   downButton.begin();
 
-  pinMode(yellowButton, INPUT_PULLUP);
-  pinMode(blueButton, INPUT_PULLUP);
+  pinMode(yellowButton,INPUT_PULLUP);
+  pinMode(blueButton,  INPUT_PULLUP);
   pinMode(greenButton, INPUT_PULLUP);
   pinMode(whiteButton, INPUT_PULLUP);
-  pinMode(redButton, INPUT_PULLUP);
+  pinMode(redButton,   INPUT_PULLUP);
 
   /*------------------------
   set pin mode of GPIOS where SPI is connected to to input in order not to distrub SPI communication (for UNO compatibility)
@@ -230,11 +233,22 @@ void setup()
   mx1.begin();
   mx2.begin();
   mx1.control(MD_MAX72XX::INTENSITY,MAX_INTENSITY/20);
+  mx2.control(MD_MAX72XX::INTENSITY,MAX_INTENSITY/20);
+  
   mx1.setFont(pFontNormal);
   mx1.transform(MD_MAX72XX::TFLR);
+  
   printText(0, MAX_DEVICES1 - 1, message);
   newMessageAvailable = false;
 
+  for (uint16_t c = 32; c > 7; c--)
+  {
+    mx2.setColumn(c, 0b00011000);
+    delay(50);
+  }
+  delay(200);
+  mx2.clear();
+  
   /*------------------------
   startup program
   ------------------------*/
@@ -332,10 +346,10 @@ void loop()
   // up/down button handling for volume control
   if (upButton.wasReleased() || upButton.pressedFor(LONG_PRESS)) //increase volume
   {
-    volume = volume - 5;
-    if (volume <= MAX_VOLUME)
+    volume = volume - VOLUME_STEP;
+    if (volume <= VOLUME_MAX)
     {
-      volume = MAX_VOLUME;
+      volume = VOLUME_MAX;
       Serial.println(F("max vol"));
     }
     musicPlayer.setVolume(volume, volume);
@@ -344,10 +358,10 @@ void loop()
   }
   if (downButton.wasReleased() || downButton.pressedFor(LONG_PRESS)) //decrease volume
   {
-    volume = volume + 5;
-    if (volume >= MIN_VOLUME)
+    volume = volume + VOLUME_STEP;
+    if (volume >= VOLUME_MIN)
     {
-      volume = MIN_VOLUME;
+      volume = VOLUME_MIN;
       Serial.println(F("min vol"));
     }
     musicPlayer.setVolume(volume, volume);
