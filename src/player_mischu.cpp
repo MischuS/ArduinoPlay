@@ -84,14 +84,6 @@ struct nfcTagData // struct to hold NFC tag data
   uint8_t special;  // byte 31 track or function for admin nfcTags
 };
 
-struct playDataInfo // struct with all infos regarding the current tag
-{
-  uint8_t  mode = 1;            // play mode
-  uint16_t pathLine = 0;        // line number of the play path in the index file
-  uint8_t  trackCnt = 0;        // track count of the folder
-  uint8_t  currentTrack = 1;    // current track number
-};
-
 struct playInfo // struct with essential infos about a tag
 {
   uint32_t uid = 0;             // first four bytes of the tags uid
@@ -240,9 +232,7 @@ void setup()
   
   /*------------------------
   startup program
-  ------------------------*/
-  // randomSeed(analogRead(randSource)); // initialize random number generator
-  
+  ------------------------*/ 
   // index SD card if left, middle and right button are pressed during startup
   if (leftButton.read() && middleButton.read() && rightButton.read())
   {
@@ -283,6 +273,7 @@ void loop()
   /*------------------------
   init variables
   ------------------------*/
+  static bool lockState = true;                    // box is locked unless key card is used on nfc reader, no configuration possible
   static bool middleButtonLongPressDetect = false; // state variable allowing to ignore release after long press
   nfcTagData dataIn;
   
@@ -420,8 +411,23 @@ void loop()
     // print debug information when received a d on console
     if (c == 'd')
     {
-      Serial.println("current status:");
+      Serial.println(F("current playInfoList"));
       printPlayInfoList(playInfoList);
+    }
+    if (c == 'k')
+    {
+      Serial.println(F("create new key card"));
+      if (tagStatus == true) 
+      {
+        // create new key card
+        dataIn.cookie = 24;
+        writeCard(&dataIn);
+      }
+      else
+      {
+        Serial.println(F("no tag found, pleas repeate"));
+      }
+      
     }
   }
 
@@ -449,35 +455,32 @@ void loop()
       int knownTag = 1;
       Serial.print(F("tag detected: "));
       readCard(&dataIn);
-      if (dataIn.cookie != 42)
+      switch (dataIn.cookie)
       {
+      default:
         // tag is not configured, init card
         knownTag = 0;
         Serial.println(F("unknown"));
         nfcTagData writeData;
         knownTag = setupCard(&writeData, playInfoList);
         readCard(&dataIn);
-      }
-      if (knownTag)
-      {
+        break;
+      case 42: // configured tag
         Serial.println(F("configured tag"));
-
         // check if the card is in the playInfoList
         uint32_t currentUid;
         memcpy(&currentUid, mfrc522.uid.uidByte, sizeof(uint32_t));
-        
         bool uidKnown = handleRecentList(currentUid, playInfoList); //if uid in list, element is moved to pos [0] otherwhise uid is added to pos [0] and otheres are pushed backwards
-
-        if (!uidKnown) //uid was not in playInfoList, lookup information and populate all required information in list
+        if (!uidKnown)                                              //uid was not in playInfoList, lookup information and populate all required information in list
         {
           playInfoList[0].mode = dataIn.mode;
           playInfoList[0].pathLine = findLine(&dataIn);
           playInfoList[0].trackCnt = dataIn.trackCnt;
-          if (dataIn.mode == 4) 
+          if (dataIn.mode == 4)
           {
             playInfoList[0].currentTrack = dataIn.special;
           }
-          else 
+          else
           {
             playInfoList[0].currentTrack = 1;
           }
@@ -491,6 +494,14 @@ void loop()
         printPlayInfoList(playInfoList);
         Serial.println(F("start playing:"));
         startPlaying(playInfoList);
+        break;
+      case 24: // key card
+        lockState = !lockState;
+        if (lockState)
+          Serial.println(F("device locked"));
+        else
+          Serial.println(F("device unlocked"));
+        break;
       }
     }
     else // nfc card removed
@@ -546,6 +557,14 @@ int voiceMenu(playInfo playInfoList[], int option)
     leftButton.read();
     upButton.read();
     downButton.read();
+
+    // abort voice menu by long middle button
+    if (middleButton.pressedFor(LONG_PRESS))
+    {
+      if (musicPlayer.playingMusic)
+        musicPlayer.stopPlaying();
+      return 0;
+    }
 
     // exit voice menu by middle button
     if (middleButton.wasPressed())
