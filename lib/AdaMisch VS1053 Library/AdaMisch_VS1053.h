@@ -1,6 +1,7 @@
 /*!
  * @file AdaMisch_VS1053.h
  */
+// used original + fork : https://github.com/westlicht/Adafruit_VS1053_Library
 
 #ifndef ADAFRUIT_VS1053_H
 #define ADAFRUIT_VS1053_H
@@ -274,6 +275,7 @@ public:
 
   uint8_t mp3buffer[VS1053_DATABUFFERLEN]; //!< mp3 buffer that gets sent to the
                                            //!< device
+  long seekPosition = -1;
 
 #ifdef ARDUINO_ARCH_SAMD
 protected:
@@ -386,13 +388,33 @@ public:
   boolean startPlayingFile(const char *trackname, uint32_t pos);
   
   /*!
+   * @brief returns the file size of the current file
+   * @param *void
+   * @return file size of current file
+   */
+  long fileSize(void);
+
+  /*!
+   * @brief returns the current position in file
+   * @param *void
+   * @return position in file
+   */
+  long filePosition(void);
+
+  /*!
+   * @brief seek new position in file
+   * @param *position to seek for
+   * @return void
+   */
+  void fileSeek(long position);
+  
+  /*!
    * @brief Play the complete file. This function will not return until the
    * playback is complete
    * @param *trackname File to play
    * @return Returns true when file starts playing
    */
   boolean playFullFile(const char *trackname);
-
   /*!
    * @brief Stop Playback
    * @return Returns file position when stopping

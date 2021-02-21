@@ -6,6 +6,9 @@ MischuS
 ****************************************************/
 
 //TODO: Relative Lautstärke auf TAG
+//TODO: play handling if single track selected
+//TODO: end by setting current track to 0 and check status
+//TODO: fast forward fast backward
 
 // include SPI, MP3, Buttons and SDfat libraries
 #include <Arduino.h>
@@ -90,7 +93,7 @@ struct playInfo // struct with essential infos about a tag
   uint8_t  mode = 1;            // play mode
   uint16_t pathLine = 0;        // line number of the current play path in the index file
   uint8_t  trackCnt = 0;        // track count of the folder
-  uint8_t  currentTrack = 1;    // current track
+  uint8_t  currentTrack = 1;    // current track, 0 if ended playing
   uint32_t playPos = 0;         // last position within file when removed tag
 };
 
@@ -105,7 +108,7 @@ uint16_t findLine(nfcTagData *tagData);                     // find line in inde
 void selectPlayFolder(playInfo playInfoList[], uint8_t foldernum);
 void playMenuOption(int option);
 void startPlaying(playInfo playInfoList[]);   // start playing selected track
-void selectNext(playInfo playInfoList[]);     // selects next track
+bool selectNext(playInfo playInfoList[]);     // selects next track
 void selectPrevious(playInfo playInfoList[]); // selects previous track
 void printerror(int errorcode, int source);
 void printText(uint8_t modStart, uint8_t modEnd, char *pMsg);
@@ -130,11 +133,11 @@ ifstream sdin; // input stream for searching in indexfile
 SdFat SD;      // file system object
 
 // Buttons
-Button upButton(blueButton);
-Button leftButton(greenButton);
-Button middleButton(whiteButton);
-Button rightButton(redButton);
-Button downButton(yellowButton);
+Button uButton(blueButton);
+Button lButton(greenButton);
+Button mButton(whiteButton);
+Button rButton(redButton);
+Button dButton(yellowButton);
 
 // global variables
 uint8_t volume = VOLUME_INIT; // settings of amplifier
@@ -189,11 +192,11 @@ void setup()
   /*------------------------
   set pin mode of GPIOs with buttons
   ------------------------*/
-  middleButton.begin();
-  leftButton.begin();
-  rightButton.begin();
-  upButton.begin();
-  downButton.begin();
+  mButton.begin();
+  lButton.begin();
+  rButton.begin();
+  uButton.begin();
+  dButton.begin();
 
   pinMode(yellowButton,INPUT_PULLUP);
   pinMode(blueButton,  INPUT_PULLUP);
@@ -234,7 +237,7 @@ void setup()
   startup program
   ------------------------*/ 
   // index SD card if left, middle and right button are pressed during startup
-  if (leftButton.read() && middleButton.read() && rightButton.read())
+  if (lButton.read() && mButton.read() && rButton.read())
   {
     
     Serial.println(F("index "));
@@ -273,8 +276,10 @@ void loop()
   /*------------------------
   init variables
   ------------------------*/
-  static bool lockState = true;                    // box is locked unless key card is used on nfc reader, no configuration possible
-  static bool middleButtonLongPressDetect = false; // state variable allowing to ignore release after long press
+  static bool lockState = true;    // box is locked unless key card is used on nfc reader, no configuration possible
+  static bool mButtonLong = false; // state variable allowing to ignore release after long press
+  static bool rButtonLong = false;
+  static bool lButtonLong = false;
   nfcTagData dataIn;
   
   /*------------------------
@@ -282,22 +287,18 @@ void loop()
   ------------------------*/
   if (!musicPlayer.playingMusic && tagStatus && !musicPlayer.paused()) // tag is present but no music is playing play next track if possible
   {
-    if (playInfoList[0].currentTrack < playInfoList[0].trackCnt)
+    if(selectNext(playInfoList))
     {
-      Serial.println(F("select next"));
-
-      selectNext(playInfoList);
-
-      Serial.println(F("next selected"));
+      Serial.println(F("next track selected"));
       startPlaying(playInfoList);
     }
     else
     {
       // tag is present but music playing ended
       // display nothing on LED display
+      Serial.println(F("ended playing all files"));
       sprintf(message, " ");
       printText(0, MAX_DEVICES1 - 1, message);
-            
       // remove uid from play info list, reset complete entry
       playInfoList[0].uid = 0;
       playInfoList[0].mode = 1;
@@ -312,14 +313,14 @@ void loop()
   buttons handling
   ------------------------*/
   // read out all button states
-  middleButton.read();
-  leftButton.read();
-  rightButton.read();
-  upButton.read();
-  downButton.read();
+  mButton.read();
+  lButton.read();
+  rButton.read();
+  uButton.read();
+  dButton.read();
 
   // up/down button handling for volume control
-  if (upButton.wasReleased() || upButton.pressedFor(LONG_PRESS)) //increase volume
+  if (uButton.wasReleased() || uButton.pressedFor(LONG_PRESS)) //increase volume
   {
     volume = volume - VOLUME_STEP;
     if (volume <= VOLUME_MAX)
@@ -331,7 +332,7 @@ void loop()
     Serial.println(volume);
     delay(VOLUME_STEPTIME); // delay the program execution not to step up volume too fast
   }
-  if (downButton.wasReleased() || downButton.pressedFor(LONG_PRESS)) //decrease volume
+  if (dButton.wasReleased() || dButton.pressedFor(LONG_PRESS)) //decrease volume
   {
     volume = volume + VOLUME_STEP;
     if (volume >= VOLUME_MIN)
@@ -345,38 +346,78 @@ void loop()
   }
 
   // left/right button handling for next track, previous track
-  if (leftButton.wasReleased() && tagStatus) // short press left button goes back 1 track
+  if(tagStatus)
   {
-    Serial.println(F("previous"));
-    selectPrevious(playInfoList);
-    startPlaying(playInfoList);
+    // left button handling
+    if (lButton.pressedFor(LONG_PRESS)) // fast backward
+    {
+      Serial.println(F("fast backward"));
+      lButtonLong = true;
+    }
+    if (lButton.wasReleased()) // previous track
+    {
+      if(lButtonLong)
+        lButtonLong = false;
+      else
+      {
+        Serial.println(F("previous"));
+        selectPrevious(playInfoList);
+        startPlaying(playInfoList);
+      }
+    }
+    // right button handling
+    if (rButton.pressedFor(LONG_PRESS)) // fast forward
+    {
+      rButtonLong = true;
+      Serial.println(F("fast forward"));
+      Serial.print(F("file size: "));     Serial.println(musicPlayer.fileSize());
+      Serial.print(F("file position: ")); Serial.println(musicPlayer.filePosition());
+      long targetPosition = musicPlayer.filePosition() + (1024L * 256L);
+      Serial.print(F("target progress: ")); Serial.println(100L * musicPlayer.filePosition());
+      //if targetPosition*100 < musicPlayer.fileSize(){
+      musicPlayer.fileSeek(musicPlayer.filePosition() + (1024L * 256L));
+      //}
+      //else
+      //{
+       // if (selectNext(playInfoList))
+       // {
+       //   startPlaying(playInfoList);
+       // }
+      //}
+      
+    }
+    if (rButton.wasReleased()) // next track
+    {
+      if(rButtonLong)
+        rButtonLong = false;
+      else
+        {
+          Serial.println(F("next"));
+          if(selectNext(playInfoList))
+          {
+            startPlaying(playInfoList);
+          }
+        }     
+    }
   }
-  // right button handling
-  if (rightButton.wasReleased() && tagStatus) // short press of right button is next track
-  {
-    Serial.println(F("next"));
-    selectNext(playInfoList);
-    startPlaying(playInfoList);
-  }
-
-  // middle button handling long press for card setup, short press for play/pause
-  if (middleButton.pressedFor(LONG_PRESS)) // long press allows to setup new card
+  // middle button handling
+  if (mButton.pressedFor(LONG_PRESS)) // setup new card
   {
     Serial.println(F("M long"));
-    if (tagStatus == false) // no card present enter reset card menu
+    if (tagStatus == false && lockState == false) // no card present enter reset card menu
     {
       Serial.println(F("reset tag"));
       if (!musicPlayer.startPlayingFile("/VOICE/0800_R~1.MP3"))
         printerror(201, 1);
       resetCard();
     }
-    middleButtonLongPressDetect = true; // long press detected, thus set state to ignore button release
+    mButtonLong = true; // long press detected, thus set state to ignore button release
   }
-  else if (middleButton.wasReleased() && tagStatus) // short press of middle button is play/pause
+  else if (mButton.wasReleased() && tagStatus) // play/pause
   {
     Serial.println(F("M release"));
-    if (middleButtonLongPressDetect == true) // check whether it is a release after longPress
-      middleButtonLongPressDetect = false;   // reset long press detect to initial state, since button is released
+    if (mButtonLong == true) // check whether it is a release after longPress
+      mButtonLong = false;   // reset long press detect to initial state, since button is released
     else
     {
       Serial.println(F("M short"));
@@ -395,7 +436,7 @@ void loop()
         musicPlayer.pausePlaying(false);
       }
     }
-    if (middleButton.wasReleased())
+    if (mButton.wasReleased())
     {
     }
   }
@@ -409,12 +450,12 @@ void loop()
     char c = Serial.read();
 
     // print debug information when received a d on console
-    if (c == 'd')
+    if (c == 'd') // debug print
     {
       Serial.println(F("current playInfoList"));
       printPlayInfoList(playInfoList);
     }
-    if (c == 'k')
+    if (c == 'k') // create key card
     {
       Serial.println(F("create new key card"));
       if (tagStatus == true) 
@@ -452,18 +493,25 @@ void loop()
     tagStatus = newTagStatus;
     if (tagStatus) // nfc card added
     {
-      int knownTag = 1;
       Serial.print(F("tag detected: "));
       readCard(&dataIn);
+      Serial.print(F("cookie: "));
+      Serial.println(dataIn.cookie);
       switch (dataIn.cookie)
       {
       default:
         // tag is not configured, init card
-        knownTag = 0;
         Serial.println(F("unknown"));
         nfcTagData writeData;
-        knownTag = setupCard(&writeData, playInfoList);
+        setupCard(&writeData, playInfoList);
         readCard(&dataIn);
+        break;
+      case 24: // key card
+        lockState = !lockState;
+        if (lockState)
+          Serial.println(F("device locked"));
+        else
+          Serial.println(F("device unlocked"));
         break;
       case 42: // configured tag
         Serial.println(F("configured tag"));
@@ -495,13 +543,7 @@ void loop()
         Serial.println(F("start playing:"));
         startPlaying(playInfoList);
         break;
-      case 24: // key card
-        lockState = !lockState;
-        if (lockState)
-          Serial.println(F("device locked"));
-        else
-          Serial.println(F("device unlocked"));
-        break;
+      
       }
     }
     else // nfc card removed
@@ -552,14 +594,14 @@ int voiceMenu(playInfo playInfoList[], int option)
 
   do
   {
-    middleButton.read();
-    rightButton.read();
-    leftButton.read();
-    upButton.read();
-    downButton.read();
+    mButton.read();
+    rButton.read();
+    lButton.read();
+    uButton.read();
+    dButton.read();
 
     // abort voice menu by long middle button
-    if (middleButton.pressedFor(LONG_PRESS))
+    if (mButton.pressedFor(LONG_PRESS))
     {
       if (musicPlayer.playingMusic)
         musicPlayer.stopPlaying();
@@ -567,7 +609,7 @@ int voiceMenu(playInfo playInfoList[], int option)
     }
 
     // exit voice menu by middle button
-    if (middleButton.wasPressed())
+    if (mButton.wasPressed())
     {
       if (musicPlayer.playingMusic)
         musicPlayer.stopPlaying();
@@ -578,7 +620,7 @@ int voiceMenu(playInfo playInfoList[], int option)
     {
     case 1: // folder select
       // browse folders by up/down buttons
-      if (upButton.wasPressed())
+      if (uButton.wasPressed())
       {
         returnValue += 1;
         Serial.print("index: ");
@@ -586,7 +628,7 @@ int voiceMenu(playInfo playInfoList[], int option)
         selectPlayFolder(playInfoList, returnValue);
         startPlaying(playInfoList);
       }
-      if (downButton.wasPressed())
+      if (dButton.wasPressed())
       {
         if (returnValue <= 1)
           returnValue = 1;
@@ -596,12 +638,14 @@ int voiceMenu(playInfo playInfoList[], int option)
         startPlaying(playInfoList);
       }
       // browse within a folder by left/right buttons
-      if (rightButton.wasPressed())
+      if (rButton.wasPressed())
       {
-        selectNext(playInfoList);
-        startPlaying(playInfoList);
+        if(selectNext(playInfoList))
+        {
+          startPlaying(playInfoList);
+        }
       }
-      if (leftButton.wasPressed())
+      if (lButton.wasPressed())
       {
         selectPrevious(playInfoList);
         startPlaying(playInfoList);
@@ -609,14 +653,14 @@ int voiceMenu(playInfo playInfoList[], int option)
       break;
 
     case 2: // play mode select
-      if (upButton.wasPressed())
+      if (uButton.wasPressed())
       {
         returnValue += 1;
         if (returnValue >= 6)
           returnValue = 1;
         playMenuOption(returnValue);
       }
-      if (downButton.wasPressed())
+      if (dButton.wasPressed())
       {
         returnValue -= 1;
         if (returnValue <= 0)
@@ -626,7 +670,7 @@ int voiceMenu(playInfo playInfoList[], int option)
       break;
 
     case 3: // select track within folder
-      if (upButton.wasPressed())
+      if (uButton.wasPressed())
       {
         if (musicPlayer.playingMusic)
           musicPlayer.stopPlaying();
@@ -637,13 +681,15 @@ int voiceMenu(playInfo playInfoList[], int option)
         }
         else
         {
-          selectNext(playInfoList);
-          startPlaying(playInfoList);
+          if(selectNext(playInfoList))
+          {
+            startPlaying(playInfoList);
+          }
           returnValue = playInfoList[0].currentTrack;
           Serial.println(returnValue);
         }
       }
-      if (downButton.wasPressed())
+      if (dButton.wasPressed())
       {
         if (returnValue == 0)
         {
@@ -668,11 +714,11 @@ void resetCard()
   nfcTagData emptyData = {0, "", 0, 0, 0};
   do
   {
-    leftButton.read();
-    upButton.read();
-    downButton.read();
+    lButton.read();
+    uButton.read();
+    dButton.read();
 
-    if (upButton.wasReleased() || downButton.wasReleased())
+    if (uButton.wasReleased() || dButton.wasReleased())
     {
       Serial.print(F("abort"));
       if (musicPlayer.playingMusic)
@@ -732,11 +778,11 @@ int setupCard(nfcTagData *nfcData, playInfo playInfoList[])
       printerror(201,0);
     // read buttons before leaving in order to avoid button event when reentering main loop
     delay(100);
-    leftButton.read();
-    middleButton.read();
-    rightButton.read();
-    upButton.read();
-    downButton.read();
+    lButton.read();
+    mButton.read();
+    rButton.read();
+    uButton.read();
+    dButton.read();
 
     return returnValue;
   }
@@ -772,11 +818,11 @@ int setupCard(nfcTagData *nfcData, playInfo playInfoList[])
   // read buttons before leaving in order to avoid button event when reentering main loop
   delay(100);
 
-  leftButton.read();
-  middleButton.read();
-  rightButton.read();
-  upButton.read();
-  downButton.read();
+  lButton.read();
+  mButton.read();
+  rButton.read();
+  uButton.read();
+  dButton.read();
   returnValue = 1;
 
   return returnValue;
@@ -876,16 +922,20 @@ uint16_t findLine(nfcTagData *tagData)
 }
 
 // select next track
-void selectNext(playInfo playInfoList[])
-{
-  // reset playPos to 0 in order to restart at the beginning
-  playInfoList[0].playPos = 0;
-  
+bool selectNext(playInfo playInfoList[])
+{ 
   // add 1 to current track
   playInfoList[0].currentTrack = playInfoList[0].currentTrack + 1;
   if (playInfoList[0].currentTrack > playInfoList[0].trackCnt)
   {
     playInfoList[0].currentTrack = playInfoList[0].trackCnt;
+    return false;
+  }
+  else
+  {
+    // reset playPos to 0 in order to restart at the beginning
+    playInfoList[0].playPos = 0;
+    return true;
   }
 }
 

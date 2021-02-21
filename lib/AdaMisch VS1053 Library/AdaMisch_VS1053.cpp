@@ -295,6 +295,7 @@ boolean Adafruit_VS1053_FilePlayer::startPlayingFile(const char *trackname)
   sciWrite(VS1053_REG_DECODETIME, 0x00);
 
   playingMusic = true;
+  seekPosition = -1;
 
   // wait till its ready for data
   while (!readyForData())
@@ -375,6 +376,37 @@ boolean Adafruit_VS1053_FilePlayer::startPlayingFile(const char *trackname, uint
   return true;
 }
 
+long Adafruit_VS1053_FilePlayer::fileSize(void)
+{
+  if (playingMusic)
+  {
+    return currentTrack.size();
+  }
+  else
+  {
+    return -1;
+  }
+}
+
+long Adafruit_VS1053_FilePlayer::filePosition(void)
+{
+  if (playingMusic)
+  {
+    return currentTrack.position();
+  }
+  else
+  {
+    return -1;
+  }
+}
+
+void Adafruit_VS1053_FilePlayer::fileSeek(long position)
+{
+  if (playingMusic) {
+    seekPosition = position;
+  }
+}
+
 void Adafruit_VS1053_FilePlayer::feedBuffer(void)
 {
   noInterrupts();
@@ -407,6 +439,11 @@ void Adafruit_VS1053_FilePlayer::feedBuffer_noLock(void)
   // Feed the hungry buffer! :)
   while (readyForData())
   {
+    if (seekPosition != -1){
+      currentTrack.seek(seekPosition);
+      seekPosition = -1;
+    }
+    
     // Read some audio data from the SD card file
     int bytesread = currentTrack.read(mp3buffer, VS1053_DATABUFFERLEN);
 
