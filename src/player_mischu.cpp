@@ -468,7 +468,12 @@ void loop()
       {
         Serial.println(F("no tag found, pleas repeate"));
       }
-      
+    }
+    if (c == 'l') // lock / unlock
+    {
+      lockState = !lockState;
+      if (lockState) Serial.println(F("device locked"));
+      else Serial.println(F("device unlocked"));
     }
   }
 
