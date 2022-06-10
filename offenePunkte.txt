@@ -1,0 +1,23 @@
+nach reset der Karte darf nicht neu gestartet werden
+
+timestamp ablegen
+RTC Clock in betrieb nehmen
+nfc tag extern testen und bei wegnehmen von tag darauf reagiern
+
+pname and fname sind redundant
+playmode ist auch redundant
+evtl. die beiden strukturen verheiraten um mehr platz zu schaffen
+
+andere tags auch erkennen
+UID nutzten um playstatus zu speichern
+
+
+
+stop playing to start playing verschieben mit if condition
+verhindert mehrfaches aufrufen von stop playing!
+
+camelbag
+
+DE25100205003087513878
+DE14100205003086886874
+
