@@ -228,7 +228,7 @@ void setup()
   for (uint16_t c = 32; c > 7; c--)
   {
     mx2.setColumn(c, 0b00011000);
-    delay(50);
+    delay(20);
   }
   delay(200);
   mx2.clear();
