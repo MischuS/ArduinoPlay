@@ -12,6 +12,8 @@ MischuS
 
 // include SPI, MP3, Buttons and SDfat libraries
 #include <Arduino.h>
+#include <avr/interrupt.h>
+#include <avr/sleep.h>
 #include <SPI.h>
 #include <AdaMisch_VS1053.h>
 #include <SdFat.h>
@@ -34,6 +36,8 @@ MD_MAX72XX::fontType_t *pFontWide = fontSmallWide; // wide font
 #define DATA_PIN 22
 #define CS_PIN1 24
 #define CS_PIN2 28
+#define ON_INTENSITY 8 // max intensity is 15
+#define SLEEP_INTENSITY 0
 
 // Global message buffers shared by Serial and Scrolling functions
 #define BUF_SIZE 75
@@ -59,7 +63,10 @@ bool newMessageAvailable = true;
 #define blueButton   A2
 #define greenButton  A3
 #define redButton    A4
-#define whiteButton  A1
+#define whiteButton  2
+
+// low bat PIN
+#define lowBat 30
 
 // define empty input for random seed
 #define randSource A15
@@ -76,6 +83,10 @@ bool newMessageAvailable = true;
 #define VOLUME_INIT 58
 #define VOLUME_STEP 3
 #define VOLUME_STEPTIME 150
+
+// define sleep behaviour
+#define MAX_IDLECNT  1000
+//#define SLEEP_TIME  500
 
 //custom type definitions
 struct nfcTagData // struct to hold NFC tag data
@@ -116,6 +127,9 @@ bool handleRecentList(uint32_t currentUid, playInfo  playInfoList[]);
 void addToRecentList(uint32_t currentUid, playInfo playInfoList[]);
 void updateRecentList(uint32_t currentUid, playInfo playInfoList[], int8_t pos);
 void printPlayInfoList(playInfo playInfoList[]);
+void lowBattery();
+void goToSleep();
+void wakeup();
 
 // instanciate global objects
 // create instance of musicPlayer object
@@ -143,13 +157,14 @@ Button dButton(yellowButton);
 uint8_t volume = VOLUME_INIT; // settings of amplifier
 bool tagStatus = false;          // tagStatus=true, tag is present, tagStatus=false no tag present
 playInfo playInfoList[3];        // FIFO of recent holds 3 entries
+uint16_t idleCnt = 0;
+bool idleFlag = true;          // false means, doing stuff
 
 // NFC management
 MFRC522::StatusCode status; // status code of MFRC522 operations
 uint8_t pageAddr = 0x06;    // start using nfc tag starting from page 6
                             // ultraligth memory has 16 pages, 4 bytes per page
                             // pages 0 to 4 are for special functions
-
 
 /* SETUP */
 void setup()
@@ -212,12 +227,25 @@ void setup()
   pinMode(13, INPUT);
 
   /*------------------------
+  check battery status
+  -------------------------*/
+  if(digitalRead(lowBat))
+  {
+    Serial.println(F("battery ok"));
+  }
+  else
+  {
+    Serial.println(F(("battery low!")));
+    lowBattery();
+  }
+
+  /*------------------------
   setup display
   ------------------------*/
   mx1.begin(); // display part for numbers
   mx2.begin(); // display part with bar
-  mx1.control(MD_MAX72XX::INTENSITY,MAX_INTENSITY/20);
-  mx2.control(MD_MAX72XX::INTENSITY,MAX_INTENSITY/20);
+  mx1.control(MD_MAX72XX::INTENSITY,ON_INTENSITY);
+  mx2.control(MD_MAX72XX::INTENSITY,ON_INTENSITY);
   
   mx1.setFont(pFontNormal);
   mx1.transform(MD_MAX72XX::TFLR);
@@ -228,11 +256,11 @@ void setup()
   for (uint16_t c = 32; c > 7; c--)
   {
     mx2.setColumn(c, 0b00011000);
-    delay(20);
+    delay(5);
   }
-  delay(200);
+  delay(50);
   mx2.clear();
-  
+
   /*------------------------
   startup program
   ------------------------*/ 
@@ -270,7 +298,6 @@ void setup()
 /* Main Loop of program
  *  
  */
-
 void loop()
 {
   /*------------------------
@@ -281,32 +308,41 @@ void loop()
   static bool rButtonLong = false;
   static bool lButtonLong = false;
   nfcTagData dataIn;
-  
+
   /*------------------------
   player status handling
   ------------------------*/
-  if (!musicPlayer.playingMusic && tagStatus && !musicPlayer.paused()) // tag is present but no music is playing play next track if possible
+  if (!musicPlayer.playingMusic)
   {
-    if(selectNext(playInfoList))
+    idleFlag = true;
+    if(tagStatus && !musicPlayer.paused()) // tag is present but no music is playing play next track if possible
     {
-      Serial.println(F("next track selected"));
-      startPlaying(playInfoList);
+      if(selectNext(playInfoList))
+      {
+        Serial.println(F("next track selected"));
+        startPlaying(playInfoList);
+        idleFlag = false;
+      }
+      else
+      {
+        // tag is present but music playing ended
+        // display nothing on LED display
+        Serial.println(F("ended playing all files"));
+        sprintf(message, " ");
+        printText(0, MAX_DEVICES1 - 1, message);
+        // remove uid from play info list, reset complete entry
+        playInfoList[0].uid = 0;
+        playInfoList[0].mode = 1;
+        playInfoList[0].pathLine = 0;
+        playInfoList[0].trackCnt = 0;
+        playInfoList[0].currentTrack = 1;
+        playInfoList[0].playPos = 0;
+      }
     }
-    else
-    {
-      // tag is present but music playing ended
-      // display nothing on LED display
-      Serial.println(F("ended playing all files"));
-      sprintf(message, " ");
-      printText(0, MAX_DEVICES1 - 1, message);
-      // remove uid from play info list, reset complete entry
-      playInfoList[0].uid = 0;
-      playInfoList[0].mode = 1;
-      playInfoList[0].pathLine = 0;
-      playInfoList[0].trackCnt = 0;
-      playInfoList[0].currentTrack = 1;
-      playInfoList[0].playPos = 0;
-    }
+  }
+  else
+  {
+    idleFlag = false;
   }
 
   /*------------------------
@@ -318,6 +354,12 @@ void loop()
   rButton.read();
   uButton.read();
   dButton.read();
+
+  if (uButton.wasReleased() || dButton.wasReleased() || lButton.wasReleased() || rButton.wasReleased() || mButton.wasReleased() ||
+      uButton.isPressed()   || dButton.isPressed()   || lButton.isPressed()   || rButton.isPressed()   || mButton.isPressed())
+      {
+        idleFlag =false;
+      }
 
   // up/down button handling for volume control
   if (uButton.wasReleased() || uButton.pressedFor(LONG_PRESS)) //increase volume
@@ -427,6 +469,7 @@ void loop()
         printText(0, MAX_DEVICES1 - 1, message);
         Serial.println(F("pause"));
         musicPlayer.pausePlaying(true);
+        idleFlag = true;
       }
       else
       {
@@ -434,6 +477,7 @@ void loop()
         printText(0, MAX_DEVICES1 - 1, message);
         Serial.println(F("resume"));
         musicPlayer.pausePlaying(false);
+        idleFlag = false;
       }
     }
     if (mButton.wasReleased())
@@ -444,7 +488,6 @@ void loop()
   /*------------------------
   serial IF handling
   ------------------------*/
-  
   if (Serial.available())
   {
     char c = Serial.read();
@@ -547,8 +590,9 @@ void loop()
         printPlayInfoList(playInfoList);
         Serial.println(F("start playing:"));
         startPlaying(playInfoList);
+        idleFlag = false;
+        Serial.println(F("end flag set to false"));
         break;
-      
       }
     }
     else // nfc card removed
@@ -557,19 +601,76 @@ void loop()
       // save current trackPos to recent list in order to resume correctly is the same tag is reapplied
       if (musicPlayer.playingMusic || musicPlayer.paused())
       {
-        playInfoList[0].playPos = musicPlayer.stopPlaying();
+        playInfoList[0].playPos = musicPlayer.stopPlaying(); // stop musicPlayer
         printPlayInfoList(playInfoList);
-        
+
+        idleFlag = true;
+
         sprintf(message, " ");
         printText(0, MAX_DEVICES1, message);
       }
     }
   }
+  
+  /*------------------------
+  sleep handling
+  ------------------------*/
+  if (idleFlag)
+  {
+    idleCnt += 1;
+    if(idleCnt % 10 == 0)
+    {
+      Serial.print(F("IdleCnt: "));
+      Serial.println(idleCnt);
+    }
+    if(idleCnt >= MAX_IDLECNT)
+    {
+      goToSleep();
+    }    
+  }
+  else
+  {
+    idleCnt = 0;
+  }
+  Serial.print(F("."));
+}
+
+/*
+ISR
+==========================================================================================
+*/
+void wakeup()
+{
+  ;
 }
 
 /* support functions
 ==========================================================================================
 */
+void goToSleep()
+{
+  Serial.println(F("Go to sleep"));
+  mx1.control(MD_MAX72XX::INTENSITY,SLEEP_INTENSITY);
+  mx2.control(MD_MAX72XX::INTENSITY,SLEEP_INTENSITY);
+  delay(100); // make sure that intensity is set and serial print finished
+
+  attachInterrupt(digitalPinToInterrupt(whiteButton),wakeup, LOW);
+  ADCSRA = 0;
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  noInterrupts();
+  sleep_enable();
+  interrupts();
+  sleep_cpu();
+  // sleeping ... until interrupt occurs
+  sleep_disable();
+  detachInterrupt(digitalPinToInterrupt(whiteButton));
+  
+  Serial.println(F("wake up from sleep"));
+  mx1.control(MD_MAX72XX::INTENSITY,ON_INTENSITY);
+  mx2.control(MD_MAX72XX::INTENSITY,ON_INTENSITY);
+  idleCnt = 0;
+  idleFlag = false;        // false means, doing stuff
+}
 
 int voiceMenu(playInfo playInfoList[], int option)
 {
@@ -1333,6 +1434,23 @@ void printPlayInfoList(playInfo playInfoList[])
     Serial.println(playInfoList[i].playPos);
   }
   Serial.println();
+}
+
+// routine called if low battery detected
+void lowBattery()
+{
+  musicPlayer.stopPlaying();
+  musicPlayer.setVolume(20, 20);
+  musicPlayer.playFullFile("/VOICE/0200_L~1.MP3");
+  
+  Serial.println(F("Turn off"));
+  mx1.clear();
+  mx2.clear();
+  delay(100);
+  set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+  noInterrupts();
+  sleep_enable();
+  sleep_cpu(); // turn off
 }
 
 /*---------------------------------
