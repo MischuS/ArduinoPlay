@@ -59,10 +59,10 @@ bool newMessageAvailable = true;
 #define SHIELD_RESET -1 // VS1053 reset pin (unused!)
 
 // define button PINs
-#define yellowButton A5
-#define blueButton   A2
-#define greenButton  A3
-#define redButton    A4
+#define yellowButton 18
+#define redButton    19
+#define greenButton  20
+#define blueButton   21
 #define whiteButton  2
 
 // low bat PIN
@@ -108,6 +108,19 @@ struct playInfo // struct with essential infos about a tag
   uint32_t playPos = 0;         // last position within file when removed tag
 };
 
+// init and end functions
+bool initSPI();
+bool initNFCReader();
+bool endNFCReader();
+bool initPlayer();
+bool endPlayer();
+bool initSD();
+bool endSD();
+bool initButtons();
+bool endButtons();
+bool initLEDArray(bool animation = false);
+bool endLEDArray();
+
 // function definition
 void indexDirectoryToFile(File dir, File *indexFile);
 int voiceMenu(playInfo playInfoList[], int option);         // voice menu for setting up device
@@ -130,6 +143,8 @@ void printPlayInfoList(playInfo playInfoList[]);
 void lowBattery();
 void goToSleep();
 void wakeup();
+void waitWhite();
+
 
 // instanciate global objects
 // create instance of musicPlayer object
@@ -169,62 +184,24 @@ uint8_t pageAddr = 0x06;    // start using nfc tag starting from page 6
 /* SETUP */
 void setup()
 {
+  
+    
   /*------------------------
   setup communication
   ------------------------*/
   Serial.begin(BAUDRATE); // init serial communication
   while (!Serial); // wait until serial has started
   Serial.println(F("start"));
-  SPI.begin(); // start SPI communication
-
+  
   /*------------------------  
-  setup nfc HW
+  setup hardware
   ------------------------*/
-  mfrc522.PCD_Init();                // initialize card reader
-  Serial.println(F("init NFC Reader"));
-  mfrc522.PCD_DumpVersionToSerial(); // print FW version of the reader
-
-  /*------------------------
-  setup player
-  ------------------------*/
-  musicPlayer.begin();                                 // setup music player
-  Serial.println(F("VS1053 ok"));                   // print music player info
-  musicPlayer.setVolume(volume, volume);               // set volume for R and L chan, 0: loudest, 256: quietest
-  musicPlayer.useInterrupt(VS1053_FILEPLAYER_PIN_INT); // setup music player to use interupts
-
-  /*------------------------
-  setup SD card
-  ------------------------*/
-  Serial.print(F("initSD "));
-  if (!SD.begin(CARDCS))
-  {
-    printerror(301, 0);
-    while (1)
-      ; // SD failed, program stopped
-  }
-  Serial.println(F("ok"));
-
-  /*------------------------
-  set pin mode of GPIOs with buttons
-  ------------------------*/
-  mButton.begin();
-  lButton.begin();
-  rButton.begin();
-  uButton.begin();
-  dButton.begin();
-
-  pinMode(yellowButton,INPUT_PULLUP);
-  pinMode(blueButton,  INPUT_PULLUP);
-  pinMode(greenButton, INPUT_PULLUP);
-  pinMode(whiteButton, INPUT_PULLUP);
-  pinMode(redButton,   INPUT_PULLUP);
-
-  /*------------------------
-  set pin mode of GPIOS where SPI is connected to to input in order not to distrub SPI communication (for UNO compatibility)
-  ------------------------*/
-  pinMode(11, INPUT);
-  pinMode(12, INPUT);
-  pinMode(13, INPUT);
+  initButtons();
+  initSPI();
+  initNFCReader();
+  initPlayer();
+  initSD();
+  initLEDArray(true);
 
   /*------------------------
   check battery status
@@ -238,28 +215,6 @@ void setup()
     Serial.println(F(("battery low!")));
     lowBattery();
   }
-
-  /*------------------------
-  setup display
-  ------------------------*/
-  mx1.begin(); // display part for numbers
-  mx2.begin(); // display part with bar
-  mx1.control(MD_MAX72XX::INTENSITY,ON_INTENSITY);
-  mx2.control(MD_MAX72XX::INTENSITY,ON_INTENSITY);
-  
-  mx1.setFont(pFontNormal);
-  mx1.transform(MD_MAX72XX::TFLR);
-  
-  printText(0, MAX_DEVICES1 - 1, message);
-  newMessageAvailable = false;
-
-  for (uint16_t c = 32; c > 7; c--)
-  {
-    mx2.setColumn(c, 0b00011000);
-    delay(5);
-  }
-  delay(50);
-  mx2.clear();
 
   /*------------------------
   startup program
@@ -644,9 +599,143 @@ void wakeup()
   ;
 }
 
+/*
+init and end functions
+==========================================================================================
+*/
+bool initSPI()
+{
+  SPI.begin(); // start SPI communication
+  bool res = true;
+  pinMode(11, INPUT);
+  pinMode(12, INPUT);
+  pinMode(13, INPUT);
+  return res;
+}
+
+bool initNFCReader()
+{
+  bool res = true;
+  mfrc522.PCD_Init();                // initialize card reader
+  Serial.println(F("init NFC Reader"));
+  mfrc522.PCD_DumpVersionToSerial(); // print FW version of the reader
+  return res;
+}
+
+bool endNFCReader()
+{
+  bool res = true;
+  return  res;
+}
+
+bool initPlayer()
+{
+  bool res = true;
+  musicPlayer.begin();                                 // setup music player
+  Serial.println(F("VS1053 ok"));                      // print music player info
+  musicPlayer.setVolume(volume, volume);               // set volume for R and L chan, 0: loudest, 256: quietest
+  musicPlayer.useInterrupt(VS1053_FILEPLAYER_PIN_INT); // setup music player to use interupts
+  return  res;
+}
+
+bool endPlayer()
+{
+  bool res = true;
+  return  res;
+}
+
+bool initSD()
+{
+  bool res = true;
+  Serial.print(F("initSD "));
+  if (!SD.begin(CARDCS))
+  {
+    printerror(301, 0);
+    res = false;
+  }
+  else
+  {
+    Serial.println(F("ok"));
+  }
+  return  res;
+}
+
+bool endSD()
+{
+  bool res = true;
+  return  res;
+}
+
+bool initButtons()
+{
+  bool res = true;
+  mButton.begin();
+  lButton.begin();
+  rButton.begin();
+  uButton.begin();
+  dButton.begin();
+
+  pinMode(yellowButton,INPUT_PULLUP);
+  pinMode(blueButton,  INPUT_PULLUP);
+  pinMode(greenButton, INPUT_PULLUP);
+  pinMode(whiteButton, INPUT_PULLUP);
+  pinMode(redButton,   INPUT_PULLUP);
+  return  res;
+}
+
+bool endButtons()
+{
+  bool res = true;
+  return  res;
+}
+
+bool initLEDArray(bool animation)
+{
+  bool res = true;
+  mx1.begin(); // display part for numbers
+  mx2.begin(); // display part with bar
+  mx1.control(MD_MAX72XX::INTENSITY,ON_INTENSITY);
+  mx2.control(MD_MAX72XX::INTENSITY,ON_INTENSITY);
+  
+  mx1.setFont(pFontNormal);
+  mx1.transform(MD_MAX72XX::TFLR);
+  
+  printText(0, MAX_DEVICES1 - 1, message);
+  newMessageAvailable = false;
+  if (animation)
+  {
+    for (uint16_t c = 32; c > 7; c--)
+    {
+      mx2.setColumn(c, 0b00011000);
+      delay(5);
+    }
+    delay(50);
+    mx2.clear();
+  }
+  return  res;
+}
+
+bool endLEDArray()
+{
+  bool res = true;
+  return  res;
+}
+
 /* support functions
 ==========================================================================================
 */
+void waitWhite()
+{
+  while(1)
+  {
+    mButton.read();
+    if(mButton.wasPressed())
+      return;
+    else
+      delay(50);
+  }
+}
+
 void goToSleep()
 {
   Serial.println(F("Go to sleep"));
@@ -655,6 +744,10 @@ void goToSleep()
   delay(100); // make sure that intensity is set and serial print finished
 
   attachInterrupt(digitalPinToInterrupt(whiteButton),wakeup, LOW);
+  attachInterrupt(digitalPinToInterrupt(yellowButton),wakeup, LOW);
+  attachInterrupt(digitalPinToInterrupt(greenButton),wakeup, LOW);
+  attachInterrupt(digitalPinToInterrupt(blueButton),wakeup, LOW);
+  attachInterrupt(digitalPinToInterrupt(redButton),wakeup, LOW);
   ADCSRA = 0;
   set_sleep_mode(SLEEP_MODE_PWR_DOWN);
   noInterrupts();
